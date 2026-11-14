@@ -42,8 +42,11 @@ sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
 
 ## What it does
 
-- **Files**: Markdown (`.md`) and HTML (`.html`) open as editable documents and are
-  saved back in the format they came in (or another, with Save as). Unsaved tabs are
+- **Files**: Markdown (`.md`) opens as an editable document; documents can also be
+  saved as HTML (Save as `.html`).
+- **HTML**: an HTML page opens as a browser shows it — its own CSS, images and layout —
+  drawn by WebView2, the Edge engine Windows ships, and only while a page is open. The
+  sidebar lists its headings. (Windows only.) Unsaved tabs are
   marked, and closing one (or the window) asks first.
 - **PDF**: a PDF opens read-only, page by page as printed, and you can pin comments
   anywhere on a page — double-click it. Comments are kept beside the file in

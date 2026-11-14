@@ -30,6 +30,7 @@ use crate::editor::theme::{ActiveEditorTheme, ToggleAppearance};
 use crate::editor::ui::icon;
 use crate::editor::view::DocumentChanged;
 use crate::editor::{RifflyEditor, html, markdown};
+use crate::html_view::{HtmlView, PageChanged};
 use crate::pdf::{CommentsChanged, PdfView};
 use recent::RecentFiles;
 use settings::{Appearance, Settings};
@@ -283,11 +284,13 @@ pub fn default_config_dir() -> Option<PathBuf> {
 type TabId = u64;
 type PaneId = u64;
 
-/// What a tab shows: a document to edit, or a PDF to read and comment on.
+/// What a tab shows: a document to edit, a PDF to read and comment on, or
+/// an HTML page as a browser shows it.
 #[derive(Clone)]
 enum Content {
     Doc(Entity<RifflyEditor>),
     Pdf(Entity<PdfView>),
+    Html(Entity<HtmlView>),
 }
 
 /// How a document is written to disk, chosen by its file's extension.
@@ -327,14 +330,21 @@ impl Tab {
     fn editor(&self) -> Option<&Entity<RifflyEditor>> {
         match &self.content {
             Content::Doc(editor) => Some(editor),
-            Content::Pdf(_) => None,
+            Content::Pdf(_) | Content::Html(_) => None,
         }
     }
 
     fn pdf(&self) -> Option<&Entity<PdfView>> {
         match &self.content {
             Content::Pdf(pdf) => Some(pdf),
-            Content::Doc(_) => None,
+            Content::Doc(_) | Content::Html(_) => None,
+        }
+    }
+
+    fn html(&self) -> Option<&Entity<HtmlView>> {
+        match &self.content {
+            Content::Html(page) => Some(page),
+            Content::Doc(_) | Content::Pdf(_) => None,
         }
     }
 
@@ -342,12 +352,14 @@ impl Tab {
         match &self.content {
             Content::Doc(editor) => editor.focus_handle(cx),
             Content::Pdf(pdf) => pdf.focus_handle(cx),
+            Content::Html(page) => page.focus_handle(cx),
         }
     }
 
     fn icon(&self) -> &'static str {
         match self.content {
             Content::Pdf(_) => "book-open",
+            Content::Html(_) => "globe",
             Content::Doc(_) => "file-text",
         }
     }
@@ -716,6 +728,35 @@ impl Workspace {
         pdf
     }
 
+    /// Open an HTML page in a new tab, shown as a browser shows it.
+    pub fn add_html_tab(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<HtmlView> {
+        let page = cx.new(|cx| HtmlView::open(path.clone(), cx));
+        let id = self.fresh_id();
+        let subscriptions = vec![cx.subscribe(&page, |_, _, _: &PageChanged, cx| cx.notify())];
+        self.insert_tab(
+            Tab {
+                id,
+                content: Content::Html(page.clone()),
+                path: Some(path),
+                dirty: false,
+                _subscriptions: subscriptions,
+            },
+            window,
+            cx,
+        );
+        page
+    }
+
+    /// The HTML page the active pane shows, if it shows one.
+    pub fn active_html(&self) -> Option<Entity<HtmlView>> {
+        self.pane().active_tab().and_then(|tab| tab.html().cloned())
+    }
+
     fn insert_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
         let pane = &mut self.panes[self.active_pane];
         let at = if pane.tabs.is_empty() {
@@ -747,6 +788,7 @@ impl Workspace {
         match content {
             Content::Doc(editor) => editor.update(cx, |editor, cx| editor.focus_document(window, cx)),
             Content::Pdf(pdf) => window.focus(&pdf.focus_handle(cx), cx),
+            Content::Html(page) => window.focus(&page.focus_handle(cx), cx),
         }
         cx.notify();
     }
@@ -1021,9 +1063,10 @@ impl Workspace {
     /// How many rows the sidebar's keyboard cursor walks: the outline, then
     /// the recent files.
     fn sidebar_rows(&self, cx: &App) -> (usize, usize) {
-        let outline = match (self.active_editor(), self.active_pdf()) {
-            (Some(editor), _) => editor.read(cx).outline().len(),
-            (None, Some(pdf)) => pdf.read(cx).page_count(),
+        let outline = match (self.active_editor(), self.active_pdf(), self.active_html()) {
+            (Some(editor), _, _) => editor.read(cx).outline().len(),
+            (None, Some(pdf), _) => pdf.read(cx).page_count(),
+            (None, None, Some(page)) => page.read(cx).headings().len(),
             _ => 0,
         };
         (outline, self.recent.entries().len())
@@ -1085,6 +1128,11 @@ impl Workspace {
             } else if let Some(pdf) = self.active_pdf() {
                 pdf.update(cx, |pdf, cx| pdf.scroll_to_page(row, cx));
                 window.focus(&pdf.focus_handle(cx), cx);
+            } else if let Some(page) = self.active_html() {
+                page.update(cx, |page, _| {
+                    page.reveal_heading(row);
+                    page.focus_page();
+                });
             }
         } else if let Some(path) = self.recent.entries().get(row - outline).cloned() {
             self.open_path(path, window, cx);
@@ -1156,6 +1204,9 @@ impl Workspace {
         if is_pdf(&path) {
             self.error = None;
             self.add_pdf_tab(path.clone(), window, cx);
+        } else if Format::of(&path) == Format::Html {
+            self.error = None;
+            self.add_html_tab(path.clone(), window, cx);
         } else {
             let text = match std::fs::read(&path) {
                 Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
@@ -1215,8 +1266,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let Some(tab) = self.tab(id) else { return };
-        // A PDF is never written; its comments save themselves.
-        if tab.pdf().is_some() {
+        // A PDF or an HTML page is never written here; a PDF's comments
+        // save themselves.
+        if tab.pdf().is_some() || tab.html().is_some() {
             if close {
                 self.remove_tab(id, window, cx);
             }
@@ -1683,6 +1735,7 @@ impl Workspace {
         let editor: Option<AnyElement> = pane.active_tab().map(|tab| match &tab.content {
             Content::Doc(editor) => editor.clone().into_any_element(),
             Content::Pdf(pdf) => pdf.clone().into_any_element(),
+            Content::Html(page) => page.clone().into_any_element(),
         });
         let dragging = cx.has_active_drag() && !self.resizing;
 
@@ -1885,9 +1938,11 @@ impl Workspace {
         let min_level = outline.iter().map(|item| item.level).min().unwrap_or(1);
 
         let cursor = self.sidebar_cursor;
-        let outline_len = match &pdf {
-            Some(pdf) => pdf.read(cx).page_count(),
-            None => outline.len(),
+        let page = self.active_html();
+        let outline_len = match (&pdf, &page) {
+            (Some(pdf), _) => pdf.read(cx).page_count(),
+            (None, Some(page)) => page.read(cx).headings().len(),
+            _ => outline.len(),
         };
         let outline_rows: Vec<AnyElement> = outline
             .into_iter()
@@ -1944,7 +1999,13 @@ impl Workspace {
                         this.open_path(target.clone(), window, cx)
                     }))
                     .child(icon(
-                        if is_pdf(path) { "book-open" } else { "file-text" },
+                        if is_pdf(path) {
+                            "book-open"
+                        } else if Format::of(path) == Format::Html {
+                            "globe"
+                        } else {
+                            "file-text"
+                        },
                         theme.rems(0.875),
                         colors.muted_foreground,
                     ))
@@ -2037,6 +2098,34 @@ impl Workspace {
         };
         let is_pdf_tab = pdf.is_some();
         let has_comments = !comment_rows.is_empty();
+        // An HTML page's headings, which scroll the page when picked.
+        let outline_rows: Vec<AnyElement> = match &page {
+            Some(page_entity) => {
+                let headings = page_entity.read(cx).headings().to_vec();
+                let top = headings.iter().map(|h| h.level).min().unwrap_or(1);
+                headings
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row, heading)| {
+                        let target = page_entity.clone();
+                        sidebar_row(("html-heading", row), false, cursor == Some(row), cx)
+                            .pl(theme.rems(0.5 + 0.875 * (heading.level - top) as f32))
+                            .when(heading.level == top, |this| {
+                                this.font_weight(gpui_kit::FontWeight::MEDIUM)
+                            })
+                            .on_click(move |_, _, cx| {
+                                target.update(cx, |page, _| {
+                                    page.reveal_heading(row);
+                                    page.focus_page();
+                                })
+                            })
+                            .child(div().min_w_0().truncate().child(heading.text.replace('\n', " ")))
+                            .into_any_element()
+                    })
+                    .collect()
+            }
+            None => outline_rows,
+        };
         let has_outline = !outline_rows.is_empty();
         let has_recent = !recent_rows.is_empty();
         let dark = self.is_dark(cx);
@@ -2315,6 +2404,23 @@ impl Render for Workspace {
         if let Some(tab) = self.pane().active_tab() {
             let mark = if tab.dirty { "● " } else { "" };
             window.set_window_title(&format!("{mark}{} — Riffly", tab.title()));
+        }
+
+        // An HTML page is a window of its own laid over its tab, so it is
+        // shown only while its tab is the one its pane shows and nothing of
+        // Riffly's is laid over the panes.
+        let overlaid = self.show_shortcuts;
+        let pages: Vec<(Entity<HtmlView>, bool)> = self
+            .panes
+            .iter()
+            .flat_map(|pane| {
+                pane.tabs.iter().enumerate().filter_map(move |(ix, tab)| {
+                    tab.html().map(|page| (page.clone(), ix == pane.active && !overlaid))
+                })
+            })
+            .collect();
+        for (page, shown) in pages {
+            page.update(cx, |page, _| page.set_shown(shown));
         }
 
         let mut panes: Vec<AnyElement> = Vec::with_capacity(self.panes.len() * 2);

@@ -26,6 +26,7 @@ smallvec = "1"
 unicode-segmentation = "1"
 regex = "1.13.1"
 scraper = "0.29.0"
+async-channel = "2.5.0"
 
 # The system PDF engine for the PDF viewer, and the registry for
 # registering Riffly with Explorer.
@@ -44,6 +45,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 raw-window-handle = "0.6"
+wry = "0.57"
 
 [dev-dependencies]
 gpui-kit = { version = "0.6.1", features = ["test-support"] }
@@ -62,3 +64,9 @@ strip = true
 
 [build-dependencies]
 winresource = "0.1.34"
+
+# GPUI's Windows backend, as published, with one change: its drawing is not
+# "topmost", so a child window — the HTML tab's WebView2 — shows above it.
+# Upstream GPUI made the same change later (gpui-pre-windows 0.3.12).
+[patch.crates-io]
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }

@@ -380,46 +380,24 @@ fn f1_shows_and_hides_the_shortcuts(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn an_html_file_opens_as_blocks_and_saves_as_html(cx: &mut TestAppContext) {
+fn an_html_file_opens_as_a_page_with_its_headings(cx: &mut TestAppContext) {
     let h = setup(cx, "html");
     let path = h.file(
         "page.html",
-        "<html><head><title>x</title></head><body><h1>Report</h1>\
-         <p>Plain and <strong>bold</strong>.</p><ul><li>item</li></ul></body></html>",
+        "<html><head><title>x</title><style>h1{color:red}</style></head><body><h1>Report</h1>         <p>Plain and <strong>bold</strong>.</p><h2>Details</h2><ul><li>item</li></ul></body></html>",
     );
     h.open(cx, &path);
-    let types = cx.update(|cx| {
-        let editor = h.workspace.read(cx).active_editor().unwrap();
-        editor
-            .read(cx)
-            .content()
-            .into_iter()
-            .map(|b| (b.ty.to_string(), b.text))
-            .collect::<Vec<_>>()
+    cx.update(|cx| {
+        let workspace = h.workspace.read(cx);
+        assert_eq!(workspace.tab_titles()[0].as_ref(), "page.html");
+        assert!(workspace.active_editor().is_none(), "a page, not a document to edit");
+        let page = workspace.active_html().expect("an HTML tab");
+        let headings: Vec<_> = page.read(cx).headings().iter().map(|h| (h.level, h.text.clone())).collect();
+        assert_eq!(headings, vec![(1, "Report".to_string()), (2, "Details".to_string())]);
     });
-    assert_eq!(
-        types,
-        vec![
-            ("heading".to_string(), "Report".to_string()),
-            ("paragraph".to_string(), "Plain and bold.".to_string()),
-            ("bulletList".to_string(), "item".to_string()),
-        ]
-    );
-
-    h.ui(cx, |workspace, window, cx| {
-        let editor = workspace.read(cx).active_editor().unwrap();
-        editor.update(cx, |editor, cx| {
-            editor.select_text_in_block(2, 4..4, window, cx);
-            editor.insert_content(" two", window, cx);
-        });
-    });
+    // The page is shown as it is; nothing is ever written back.
     h.ui(cx, |_, window, cx| window.dispatch_action(SaveFile.boxed_clone(), cx));
-
-    let written = std::fs::read_to_string(&path).unwrap();
-    assert!(written.starts_with("<!doctype html>"), "{written}");
-    assert!(written.contains("<h1>Report</h1>"), "{written}");
-    assert!(written.contains("<p>Plain and <strong>bold</strong>.</p>"), "{written}");
-    assert!(written.contains("<li>item two</li>"), "{written}");
+    assert!(std::fs::read_to_string(&path).unwrap().contains("<style>h1{color:red}</style>"));
 }
 
 #[cfg(windows)]
