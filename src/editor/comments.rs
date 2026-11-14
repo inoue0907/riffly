@@ -1,4 +1,4 @@
-//! Comment threads anchored to a range of text, the way Notion's are.
+//! Comment threads anchored to a range of text.
 //!
 //! A thread is a list of comments plus the quote it was started from. The
 //! anchor lives in the document as a [`MarkKind::Comment`] over the commented
@@ -20,7 +20,7 @@ use super::mark::MarkKind;
 use super::theme::ActiveEditorTheme;
 use super::toolbar::OVERLAY_PRIORITY;
 use super::ui;
-use super::view::{DocumentChanged, NotionEditor};
+use super::view::{DocumentChanged, RifflyEditor};
 
 /// Identity of a thread, stable across edits because the mark carries it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,7 +96,7 @@ pub struct CommentDraft {
 /// Who new comments are attributed to until a host says otherwise.
 const DEFAULT_AUTHOR: &str = "You";
 
-impl NotionEditor {
+impl RifflyEditor {
     /// Every thread in the document, oldest first.
     pub fn comment_threads(&self) -> &[Thread] {
         &self.comments
@@ -226,7 +226,7 @@ impl NotionEditor {
     }
 
     /// Close the popover; a thread nobody commented on is dropped, the way
-    /// Notion discards an abandoned comment box.
+    /// An abandoned comment box is discarded.
     pub fn close_comment_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let origin = self
             .comment_draft

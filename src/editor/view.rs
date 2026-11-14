@@ -31,7 +31,7 @@ use super::theme::ActiveEditorTheme;
 /// Emitted when the document changes, so a host can persist it.
 pub struct DocumentChanged;
 
-pub struct NotionEditor {
+pub struct RifflyEditor {
     pub(crate) blocks: Vec<Block>,
     next_id: u64,
     focus_handle: FocusHandle,
@@ -71,9 +71,19 @@ pub struct NotionEditor {
     pub(crate) link_editor: Option<super::toolbar::LinkEditor>,
     /// Undo and redo for the document as a whole.
     pub(crate) history: super::history::History,
+    /// The page's scroll position, so a host can bring a block into view.
+    pub(crate) page_scroll: gpui_kit::ScrollHandle,
 }
 
-impl NotionEditor {
+/// A heading in the document, as an outline lists it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutlineItem {
+    pub id: BlockId,
+    pub level: u8,
+    pub text: String,
+}
+
+impl RifflyEditor {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut this = Self {
             blocks: Vec::new(),
@@ -97,6 +107,7 @@ impl NotionEditor {
             drop_target: None,
             link_editor: None,
             history: super::history::History::default(),
+            page_scroll: gpui_kit::ScrollHandle::new(),
             theme: Vec::new(),
         };
         // Mark colours are baked into the decoration layer when they are
@@ -1212,15 +1223,15 @@ pub(crate) fn highlight_style(kinds: &[MarkKind], cx: &App) -> HighlightStyle {
     style
 }
 
-impl EventEmitter<DocumentChanged> for NotionEditor {}
+impl EventEmitter<DocumentChanged> for RifflyEditor {}
 
-impl Focusable for NotionEditor {
+impl Focusable for RifflyEditor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl Render for NotionEditor {
+impl Render for RifflyEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_input_insets(window, cx);
         let in_a_block = self.refresh_focus(window, cx);
@@ -1270,6 +1281,7 @@ impl Render for NotionEditor {
                 v_flex()
                     .id("page")
                     .size_full()
+                    .track_scroll(&self.page_scroll)
                     .overflow_y_scroll()
                     .items_center()
                     .child(
@@ -1304,9 +1316,9 @@ impl Render for NotionEditor {
     }
 }
 
-impl NotionEditor {
+impl RifflyEditor {
     /// Put the caret in the last block, appending a paragraph when the last
-    /// block cannot hold one, the way clicking under a Notion page does.
+    /// block cannot hold one, the way clicking under a page does.
     pub fn focus_trailing_block(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let last = self.blocks.len().saturating_sub(1);
         let textual = self
@@ -1323,6 +1335,60 @@ impl NotionEditor {
         }
         let id = self.insert_block(self.blocks.len(), BlockContent::paragraph(""), window, cx);
         self.focus_block(id, Caret::End, window, cx);
+    }
+
+    /// The document's headings in order, which is its outline.
+    pub fn outline(&self) -> Vec<OutlineItem> {
+        self.blocks
+            .iter()
+            .filter(|block| block.ty == types::HEADING)
+            .map(|block| OutlineItem {
+                id: block.id,
+                level: block.attrs.level.max(1),
+                text: block.text.clone(),
+            })
+            .collect()
+    }
+
+    /// The heading the caret is under: the last one at or above it.
+    pub fn current_heading(&self) -> Option<BlockId> {
+        let at = self.active_index()?;
+        self.blocks[..=at.min(self.blocks.len().saturating_sub(1))]
+            .iter()
+            .rev()
+            .find(|block| block.ty == types::HEADING)
+            .map(|block| block.id)
+    }
+
+    /// Scroll a block to the top of the page and put the caret in it, the
+    /// way an outline entry jumps to its heading.
+    pub fn reveal_block(&mut self, id: BlockId, window: &mut Window, cx: &mut Context<Self>) {
+        if self.index_of(id).is_none() {
+            return;
+        }
+        self.focus_block(id, Caret::End, window, cx);
+        if let Some(bounds) = self.block_bounds.get(&id) {
+            let viewport = self.page_scroll.bounds();
+            let offset = self.page_scroll.offset();
+            let max = self.page_scroll.max_offset();
+            let margin = cx.editor_theme().page_padding;
+            let y = offset.y - (bounds.top() - viewport.top()) + margin;
+            let y = y.min(px(0.)).max(-max.y);
+            self.page_scroll.set_offset(gpui_kit::point(offset.x, y));
+        }
+        cx.notify();
+    }
+
+    /// Give the keyboard back to the document: to the block that last had
+    /// it, else the first one. A host calls this when its tab comes forward.
+    pub fn focus_document(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self
+            .focused
+            .and_then(|id| self.index_of(id))
+            .or(if self.blocks.is_empty() { None } else { Some(0) });
+        let Some(ix) = target else { return };
+        let state = self.blocks[ix].state.clone();
+        state.update(cx, |state, cx| state.focus(window, cx));
     }
 
     /// The editor's own focus handle, for node selection.

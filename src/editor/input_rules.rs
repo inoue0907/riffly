@@ -13,7 +13,7 @@ use regex::Regex;
 
 use super::block::{BlockAttrs, BlockId, BlockRegistry};
 use super::mark::MarkKind;
-use super::view::{Caret, NotionEditor};
+use super::view::{Caret, RifflyEditor};
 
 /// Compiled regexes, shared across blocks and edits.
 fn regex_for(pattern: &str) -> Regex {
@@ -84,7 +84,7 @@ const TYPOGRAPHY_RULES: &[(&str, &str)] = &[
     ("+/-", "±"),
 ];
 
-impl NotionEditor {
+impl RifflyEditor {
     /// Convert a whole line that begins with a markdown prefix, the way a
     /// pasted document's lines are read. Unlike typing, the rest of the line
     /// is already there, so the rule only has to match its start.

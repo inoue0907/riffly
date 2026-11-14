@@ -27,7 +27,7 @@ pub struct LinkEditor {
     pub _subscription: gpui_kit::Subscription,
 }
 
-impl super::view::NotionEditor {
+impl super::view::RifflyEditor {
     /// Whether the selection toolbar should be on screen.
     pub fn selection_toolbar_visible(&self, cx: &App) -> bool {
         if self.suggestion_is_open() || self.drop_target.is_some() {

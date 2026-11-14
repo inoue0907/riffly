@@ -388,7 +388,7 @@ pub const INPUT_INSET_SLACK: Pixels = px(2.);
 // ------------------------------------------------------- appearance actions
 
 gpui_kit::actions!(
-    notion_appearance,
+    riffly_appearance,
     [
         /// Switch between the light and dark palettes.
         ToggleAppearance,
@@ -468,11 +468,11 @@ pub fn zoom(step: isize, cx: &mut App) {
 
 // ----------------------------------------------------------- template palette
 
-/// The Notion-like template's own palette, as a `gpui-kit` theme set.
-const TEMPLATE_THEMES: &str = include_str!("../../assets/themes/notion.json");
+/// Riffly's palette, as a `gpui-kit` theme set.
+const TEMPLATE_THEMES: &str = include_str!("../../assets/themes/riffly.json");
 
-/// Set the editor's document colours to the ones the Tiptap Notion-like
-/// template uses, for both appearances.
+/// Set the editor's document colours to Riffly's palette, for both
+/// appearances: white and warm grays with one blue accent.
 ///
 /// The palette is installed as the theme's light and dark configurations, so
 /// switching appearance keeps it — it is the application's theme from then on,
@@ -507,37 +507,37 @@ pub fn apply_template_palette(cx: &mut App) -> anyhow::Result<()> {
 
     EditorTheme::customize(cx, |theme, kit| {
         let dark = kit.mode == ThemeMode::Dark;
-        // Notion's own text and highlight palettes, which the template ships
-        // verbatim; see docs/research/tiptap-notion-spec.md §2.
+        // The text and highlight palettes: warm, muted colours that stay
+        // legible on both pages; see docs/research/tiptap-template-spec.md §2.
         theme.text_palette = TextPalette {
-            gray: hsl_of(if dark { 0x9c9c9c } else { 0x787673 }),
-            brown: hsl_of(if dark { 0xb9856e } else { 0x9d6a53 }),
-            orange: hsl_of(if dark { 0xd9730d } else { 0xc77d48 }),
-            yellow: hsl_of(if dark { 0xca994e } else { 0xca922f }),
-            green: hsl_of(if dark { 0x519e71 } else { 0x448361 }),
-            blue: hsl_of(if dark { 0x3699d3 } else { 0x327da9 }),
-            purple: hsl_of(if dark { 0x9e69d3 } else { 0x8f64af }),
-            pink: hsl_of(if dark { 0xd15796 } else { 0xc24c8b }),
-            red: hsl_of(if dark { 0xdf5553 } else { 0xd34a45 }),
+            gray: hsl_of(if dark { 0x9b9b9b } else { 0x787774 }),
+            brown: hsl_of(if dark { 0xba856f } else { 0x9f6b53 }),
+            orange: hsl_of(if dark { 0xc77d48 } else { 0xd9730d }),
+            yellow: hsl_of(if dark { 0xca9849 } else { 0xcb912f }),
+            green: hsl_of(if dark { 0x529e72 } else { 0x448361 }),
+            blue: hsl_of(if dark { 0x379ad3 } else { 0x337ea9 }),
+            purple: hsl_of(if dark { 0x9d68d3 } else { 0x9065b0 }),
+            pink: hsl_of(if dark { 0xd15796 } else { 0xc14c8a }),
+            red: hsl_of(if dark { 0xdf5452 } else { 0xd44c47 }),
         };
+        // The background (highlight) colours, by palette name.
         theme.highlight_palette = HighlightPalette {
-            yellow: hsl_of(if dark { 0x6b6524 } else { 0xfef9c3 }),
-            green: hsl_of(if dark { 0x509568 } else { 0xdcfce7 }),
-            blue: hsl_of(if dark { 0x6e92aa } else { 0xe0f2fe }),
-            purple: hsl_of(if dark { 0x583e74 } else { 0xf3e8ff }),
-            pink: hsl_of(if dark { 0x4e2c3c } else { 0xfcf1f6 }),
-            red: hsl_of(if dark { 0x743e42 } else { 0xffe4e6 }),
-            gray: hsl_of(if dark { 0x2f2f2f } else { 0xf8f8f7 }),
+            yellow: hsl_of(if dark { 0x564328 } else { 0xfbf3db }),
+            green: hsl_of(if dark { 0x243d30 } else { 0xedf3ec }),
+            blue: hsl_of(if dark { 0x143a4e } else { 0xe7f3f8 }),
+            purple: hsl_of(if dark { 0x3c2d49 } else { 0xf6f3f9 }),
+            pink: hsl_of(if dark { 0x4e2c3c } else { 0xfaf1f5 }),
+            red: hsl_of(if dark { 0x522e2a } else { 0xfdebec }),
+            gray: hsl_of(if dark { 0x2f2f2f } else { 0xf1f1ef }),
         };
-        // Inline code and the code block come off the template's gray ramps.
-        theme.code_background = hsla_of(if dark { 0xe7e7f3 } else { 0x0f1624 }, if dark { 0.07 } else { 0.05 });
-        theme.code_foreground = hsla_of(if dark { 0xfbfbfe } else { 0x23252a }, if dark { 0.75 } else { 0.87 });
-        theme.code_block_background = hsla_of(
-            if dark { 0xe8e8fd } else { 0x383838 },
-            if dark { 0.05 } else { 0.04 },
-        );
-        theme.callout_background = theme.code_block_background;
-        theme.table_header_background = theme.code_block_background;
+        // Inline code is red text on a warm gray wash. Code blocks,
+        // callouts and table headers sit on its warm off-white (or the
+        // lifted dark gray), never a tinted one.
+        theme.code_background = hsla_of(0x878378, if dark { 0.2 } else { 0.15 });
+        theme.code_foreground = hsl_of(if dark { 0xff7369 } else { 0xeb5757 });
+        theme.code_block_background = hsl_of(if dark { 0x202020 } else { 0xf7f6f3 });
+        theme.callout_background = hsl_of(if dark { 0x252525 } else { 0xf1f1ef });
+        theme.table_header_background = hsl_of(if dark { 0x202020 } else { 0xf7f6f3 });
         theme.quote_bar = kit.foreground.opacity(0.85);
     });
     Ok(())

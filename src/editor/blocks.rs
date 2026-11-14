@@ -23,7 +23,7 @@ use super::block::{
 };
 use super::theme::EditorTheme;
 
-/// Register the node types the Notion-like editor ships with.
+/// Register the node types Riffly ships with.
 pub fn init(cx: &mut App) {
     cx.set_global(BlockRegistry::new(std::sync::Arc::new(Paragraph)));
     BlockRegistry::register(cx, Heading);
@@ -997,7 +997,7 @@ impl BlockSpec for Table {
                         .child(add_row_button(ctx, cx)),
                 )
                 // Row and column controls sit outside the table's frame, the
-                // way Notion keeps them out of the data.
+                // way block editors keep them out of the data.
                 .child(
                     v_flex()
                         .flex_none()

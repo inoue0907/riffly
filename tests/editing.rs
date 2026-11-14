@@ -4,11 +4,11 @@
 use gpui_kit::component::{Root, Theme, ThemeMode};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, px, size};
-use gpui_notion::editor::block::{BlockContent, BlockId};
-use gpui_notion::editor::{self, CellPosition, EditorTheme, MarkKind, NotionEditor, types};
+use riffly::editor::block::{BlockContent, BlockId};
+use riffly::editor::{self, CellPosition, EditorTheme, MarkKind, RifflyEditor, types};
 
 struct Harness {
-    editor: Entity<NotionEditor>,
+    editor: Entity<RifflyEditor>,
     window: AnyWindowHandle,
 }
 
@@ -18,7 +18,7 @@ fn setup(cx: &mut TestAppContext) -> Harness {
 
     let mut editor = None;
     let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
-        let view = cx.new(|cx| NotionEditor::new(window, cx));
+        let view = cx.new(|cx| RifflyEditor::new(window, cx));
         editor = Some(view.clone());
         Root::new(view, window, cx)
     });
@@ -239,8 +239,8 @@ fn inline_rules_apply_marks(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let editor = harness.editor.read(cx);
         let block = &editor.content()[0];
-        assert!(block.marks.has(&gpui_notion::editor::MarkKind::Bold, &(4..8)));
-        assert!(!block.marks.has(&gpui_notion::editor::MarkKind::Bold, &(9..12)));
+        assert!(block.marks.has(&riffly::editor::MarkKind::Bold, &(4..8)));
+        assert!(!block.marks.has(&riffly::editor::MarkKind::Bold, &(9..12)));
     });
 }
 
@@ -255,7 +255,7 @@ fn the_bold_shortcut_marks_the_selection(cx: &mut TestAppContext) {
         let editor = harness.editor.read(cx);
         assert!(editor.content()[0]
             .marks
-            .has(&gpui_notion::editor::MarkKind::Bold, &(0..5)));
+            .has(&riffly::editor::MarkKind::Bold, &(0..5)));
     });
 }
 
@@ -314,7 +314,7 @@ fn typing_after_bold_text_continues_the_mark(cx: &mut TestAppContext) {
 
     cx.update(|cx| {
         let block = &harness.editor.read(cx).content()[0];
-        assert!(block.marks.has(&gpui_notion::editor::MarkKind::Bold, &(0..3)));
+        assert!(block.marks.has(&riffly::editor::MarkKind::Bold, &(0..3)));
     });
 }
 
@@ -325,8 +325,8 @@ fn typing_after_an_inline_rule_is_plain(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let block = &harness.editor.read(cx).content()[0];
         assert_eq!(block.text, "it rest");
-        assert!(block.marks.has(&gpui_notion::editor::MarkKind::Italic, &(0..2)));
-        assert!(!block.marks.has(&gpui_notion::editor::MarkKind::Italic, &(3..7)));
+        assert!(block.marks.has(&riffly::editor::MarkKind::Italic, &(0..2)));
+        assert!(!block.marks.has(&riffly::editor::MarkKind::Italic, &(3..7)));
     });
 }
 
@@ -370,13 +370,13 @@ fn a_document_loads_exactly_the_blocks_it_was_given(cx: &mut TestAppContext) {
     cx.update(editor::init);
 
     let content = vec![
-        gpui_notion::editor::block::BlockContent::paragraph("one"),
-        gpui_notion::editor::block::BlockContent::paragraph("two"),
-        gpui_notion::editor::block::BlockContent::paragraph(""),
+        riffly::editor::block::BlockContent::paragraph("one"),
+        riffly::editor::block::BlockContent::paragraph("two"),
+        riffly::editor::block::BlockContent::paragraph(""),
     ];
     let mut view = None;
     let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
-        let editor = cx.new(|cx| NotionEditor::with_content(content.clone(), window, cx));
+        let editor = cx.new(|cx| RifflyEditor::with_content(content.clone(), window, cx));
         view = Some(editor.clone());
         Root::new(editor, window, cx)
     });
@@ -488,7 +488,7 @@ fn the_toolbar_appears_over_a_selection(cx: &mut TestAppContext) {
     cx.update(|cx| {
         assert!(harness.editor.read(cx).content()[0]
             .marks
-            .has(&gpui_notion::editor::MarkKind::Bold, &(0..9)));
+            .has(&riffly::editor::MarkKind::Bold, &(0..9)));
     });
 }
 
@@ -510,12 +510,12 @@ fn the_link_editor_sets_a_link_on_the_selection(cx: &mut TestAppContext) {
         let mark = block
             .marks
             .mark_at(
-                &gpui_notion::editor::MarkKind::Link(Default::default()),
+                &riffly::editor::MarkKind::Link(Default::default()),
                 0,
             )
             .expect("link mark");
         match &mark.kind {
-            gpui_notion::editor::MarkKind::Link(href) => {
+            riffly::editor::MarkKind::Link(href) => {
                 assert_eq!(href.as_ref(), "https://tiptap.dev")
             }
             other => panic!("unexpected mark {other:?}"),
@@ -666,7 +666,7 @@ fn the_mention_menu_inserts_a_marked_name(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let block = &harness.editor.read(cx).content()[0];
         assert!(block.marks.has(
-            &gpui_notion::editor::MarkKind::Mention(Default::default()),
+            &riffly::editor::MarkKind::Mention(Default::default()),
             &(5..18)
         ));
     });
@@ -1445,12 +1445,12 @@ fn a_table_in_a_loaded_document_comes_back_with_its_cells(cx: &mut TestAppContex
     cx.update(editor::init);
 
     let content = vec![
-        gpui_notion::editor::block::BlockContent::paragraph("above"),
+        riffly::editor::block::BlockContent::paragraph("above"),
         editor::table_content(&[&["Name", "Role"], &["Ada", "Author"]]),
     ];
     let mut view = None;
     let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
-        let editor = cx.new(|cx| NotionEditor::with_content(content.clone(), window, cx));
+        let editor = cx.new(|cx| RifflyEditor::with_content(content.clone(), window, cx));
         view = Some(editor.clone());
         Root::new(editor, window, cx)
     });
@@ -1518,7 +1518,7 @@ fn a_narrow_window_reflows_instead_of_clipping(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     cx.update(editor::init);
 
-    let content = vec![gpui_notion::editor::block::BlockContent::paragraph(
+    let content = vec![riffly::editor::block::BlockContent::paragraph(
         "A paragraph that is comfortably one row wide in a roomy window and has to \
          take several rows in a narrow one, which is the case that used to leave \
          blocks sized for a width they never got.",
@@ -1526,7 +1526,7 @@ fn a_narrow_window_reflows_instead_of_clipping(cx: &mut TestAppContext) {
     let mut view = None;
     // Narrower than the 708px content column.
     let handle = cx.open_window(size(px(420.), px(600.)), |window, cx| {
-        let editor = cx.new(|cx| NotionEditor::with_content(content.clone(), window, cx));
+        let editor = cx.new(|cx| RifflyEditor::with_content(content.clone(), window, cx));
         view = Some(editor.clone());
         Root::new(editor, window, cx)
     });
@@ -1836,13 +1836,13 @@ fn setup_zoomed(cx: &mut TestAppContext, font_size: f32) -> (Harness, Vec<BlockI
 
     let content = vec![
         BlockContent::new(editor::types::HEADING, "Title")
-            .with_attrs(gpui_notion::editor::BlockAttrs::level(1)),
+            .with_attrs(riffly::editor::BlockAttrs::level(1)),
         BlockContent::paragraph("A paragraph of prose that is long enough to wrap in the column."),
         BlockContent::new(editor::types::BULLET_LIST, "An item"),
     ];
     let mut view = None;
     let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
-        let editor = cx.new(|cx| NotionEditor::with_content(content.clone(), window, cx));
+        let editor = cx.new(|cx| RifflyEditor::with_content(content.clone(), window, cx));
         view = Some(editor.clone());
         Root::new(editor, window, cx)
     });
@@ -2015,9 +2015,9 @@ fn the_template_palette_survives_an_appearance_change(cx: &mut TestAppContext) {
         assert!(!kit.mode.is_dark());
         assert_eq!(kit.background, gpui_kit::rgb(0xffffff).into(), "page");
         assert_eq!(
-            EditorTheme::global(cx).highlight_fill(Some(gpui_notion::editor::HighlightColor::Yellow)),
-            gpui_kit::rgb(0xfef9c3).into(),
-            "the template's yellow highlight"
+            EditorTheme::global(cx).highlight_fill(Some(riffly::editor::HighlightColor::Yellow)),
+            gpui_kit::rgb(0xfbf3db).into(),
+            "the yellow highlight"
         );
     });
 
@@ -2027,11 +2027,11 @@ fn the_template_palette_survives_an_appearance_change(cx: &mut TestAppContext) {
     cx.update(|cx| {
         let kit = Theme::global(cx);
         assert!(kit.mode.is_dark());
-        assert_eq!(kit.background, gpui_kit::rgb(0x0e0e11).into(), "dark page");
+        assert_eq!(kit.background, gpui_kit::rgb(0x191919).into(), "dark page");
         assert_eq!(
-            EditorTheme::global(cx).highlight_fill(Some(gpui_notion::editor::HighlightColor::Yellow)),
-            gpui_kit::rgb(0x6b6524).into(),
-            "the template's dark yellow highlight"
+            EditorTheme::global(cx).highlight_fill(Some(riffly::editor::HighlightColor::Yellow)),
+            gpui_kit::rgb(0x564328).into(),
+            "the dark yellow highlight"
         );
     });
 }

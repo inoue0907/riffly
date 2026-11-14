@@ -2,7 +2,7 @@
 //!
 //! Inside a block the input owns the selection. Once a selection reaches past
 //! a block's edge the editor takes over and selects whole blocks, which is
-//! what Notion does and what `Mod+A` escalates to.
+//! what `Mod+A` escalates to.
 
 use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::component::input::{Copy, Cut, SelectAll};
@@ -13,9 +13,9 @@ use gpui_kit::{
 
 use super::block::{BlockContent, BlockId, BlockRegistry, types};
 use super::history::Step;
-use super::view::{Caret, NotionEditor};
+use super::view::{Caret, RifflyEditor};
 
-impl NotionEditor {
+impl RifflyEditor {
     /// Blocks currently selected as nodes, in document order.
     pub fn selected_blocks(&self) -> Vec<BlockId> {
         let mut ids: Vec<BlockId> = self
@@ -215,7 +215,7 @@ impl NotionEditor {
     // ------------------------------------------------------------- handlers
 
     /// A press anchors a drag selection, and with Shift extends the current
-    /// one to the pressed block the way Notion does.
+    /// one to the pressed block.
     pub(crate) fn on_page_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -258,7 +258,7 @@ impl NotionEditor {
     }
 
     /// Dragging out of the block the press started in turns the drag into a
-    /// block selection, which is what Notion switches to at the same point.
+    /// block selection at the same point.
     pub(crate) fn on_page_mouse_move(
         &mut self,
         event: &MouseMoveEvent,

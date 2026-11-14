@@ -16,7 +16,7 @@ use super::actions;
 use super::block::BlockRegistry;
 use super::theme::ActiveEditorTheme;
 use super::ui::Lucide;
-use super::view::{Caret, NotionEditor, group_name};
+use super::view::{Caret, RifflyEditor, group_name};
 
 /// The payload carried while dragging a block.
 #[derive(Clone, Debug)]
@@ -57,7 +57,7 @@ pub struct DropTarget {
     pub below: bool,
 }
 
-impl NotionEditor {
+impl RifflyEditor {
     /// The `+` and drag handle, shown while the pointer is over the block.
     pub(crate) fn render_gutter(
         &self,

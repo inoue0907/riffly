@@ -12,7 +12,7 @@ use super::fit::InputFit;
 use super::theme::ActiveEditorTheme;
 
 use super::block::{BlockContent, BlockId};
-use super::view::NotionEditor;
+use super::view::RifflyEditor;
 
 /// One cell: its own input plus a mirror of what is in it.
 pub struct Cell {
@@ -146,7 +146,7 @@ const DEFAULT_COLUMNS: usize = 3;
 /// text needs and what its input keeps for itself.
 type CellState = (Entity<EditorState>, String, Pixels, InputFit);
 
-impl NotionEditor {
+impl RifflyEditor {
     /// The grid beside a block, if it has one.
     pub fn grid(&self, block: BlockId) -> Option<&CellGrid> {
         self.grids.get(&block)

@@ -907,7 +907,7 @@ so `gpui-kit = "0.5"` will not resolve. No git dependency is required.
 
 ```toml
 [package]
-name = "gpui-notion"
+name = "riffly"
 version = "0.1.0"
 edition = "2024"          # gpui-kit is edition 2024; your crate does not have to be,
                           # but the toolchain must support it (Rust >= 1.85)
@@ -995,7 +995,7 @@ is re-exported from `gpui_platform` (`crates/kit/src/lib.rs:151`).
 Your own actions:
 
 ```rust
-gpui_kit::actions!(notion, [Quit, ToggleBold, SlashMenu]);   // crates/kit/src/lib.rs:47 macro
+gpui_kit::actions!(riffly, [Quit, ToggleBold, SlashMenu]);   // crates/kit/src/lib.rs:47 macro
 
 // inside app.run:
 cx.bind_keys([

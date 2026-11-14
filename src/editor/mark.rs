@@ -2,7 +2,7 @@
 //!
 //! A block owns plain text (the `EditorState`'s rope) plus a [`MarkList`]: a
 //! set of byte ranges carrying formatting. This mirrors ProseMirror/Tiptap
-//! marks, which is what the Notion-like editor is built from, and is rendered
+//! marks, which is what the editor is built from, and is rendered
 //! by turning the list into non-overlapping `TextDecoration` runs.
 
 use std::mem::Discriminant;
@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use gpui_kit::SharedString;
 
-/// A formatting mark, mirroring the Tiptap mark set of the Notion-like editor.
+/// A formatting mark, mirroring Tiptap's mark set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MarkKind {
     Bold,

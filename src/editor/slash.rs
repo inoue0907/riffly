@@ -16,7 +16,7 @@ use super::suggestion::{EMOJI, Emoji, Mention, Trigger, default_mentions, matche
 use super::toolbar::OVERLAY_PRIORITY;
 use super::theme::ActiveEditorTheme;
 use super::ui;
-use super::view::NotionEditor;
+use super::view::RifflyEditor;
 
 /// An open suggestion menu.
 pub struct SuggestionMenu {
@@ -35,7 +35,7 @@ pub enum SuggestionItem {
         title: &'static str,
         group: &'static str,
         icon: &'static str,
-        run: fn(&mut NotionEditor, &mut Window, &mut Context<NotionEditor>),
+        run: fn(&mut RifflyEditor, &mut Window, &mut Context<RifflyEditor>),
     },
     Emoji(&'static Emoji),
     Mention(Mention),
@@ -70,7 +70,7 @@ fn group_rank(group: &str) -> usize {
         .unwrap_or(GROUP_ORDER.len())
 }
 
-impl NotionEditor {
+impl RifflyEditor {
     pub fn suggestion_is_open(&self) -> bool {
         self.suggestion.is_some()
     }

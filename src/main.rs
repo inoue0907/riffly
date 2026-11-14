@@ -1,9 +1,10 @@
 use gpui_kit::assets::AllAssets;
 use gpui_kit::component::Root;
 use gpui_kit::*;
-use gpui_notion::editor::block::{BlockAttrs, BlockContent, types};
-use gpui_notion::editor::mark::{HighlightColor, Mark, MarkKind, MarkList};
-use gpui_notion::editor::{self, NotionEditor};
+use riffly::editor::block::{BlockAttrs, BlockContent, types};
+use riffly::editor::mark::{HighlightColor, Mark, MarkKind, MarkList};
+use riffly::editor::{self, RifflyEditor};
+use riffly::workspace::{self, Workspace};
 
 fn marked_paragraph() -> BlockContent {
     let text = "Bold, italic, underline, strike, code and a link.";
@@ -26,11 +27,11 @@ fn demo_document() -> Vec<BlockContent> {
     let code = "fn greet(name: &str) {\n    println!(\"hello, {name}\");\n}";
 
     vec![
-        BlockContent::new(types::HEADING, "Notion-like editor").with_attrs(BlockAttrs::level(1)),
+        BlockContent::new(types::HEADING, "Welcome to Riffly").with_attrs(BlockAttrs::level(1)),
         BlockContent::paragraph(
-            "A block editor built with GPUI and gpui-kit, with Tiptap's commands, \
-             markdown input rules and a slash menu. Every block is its own input, \
-             and inline marks are painted over the text as decorations.",
+            "Riffly is a block editor for quickly reading, reviewing and fixing \
+             markdown, like the files an AI just wrote. Open one with Ctrl+O, \
+             split the window with Ctrl+\\ and press F1 for every shortcut.",
         ),
         BlockContent::new(types::HEADING, "Inline formatting").with_attrs(BlockAttrs::level(2)),
         marked_paragraph(),
@@ -57,25 +58,25 @@ fn demo_document() -> Vec<BlockContent> {
     ]
 }
 
-/// Development aid: `NOTION_DEMO=toolbar` or `NOTION_DEMO=slash` starts the
+/// Development aid: `RIFFLY_DEMO=toolbar` or `RIFFLY_DEMO=slash` starts the
 /// window with that surface open, so it can be reviewed without driving the
 /// pointer.
-fn open_demo_state(editor: &mut NotionEditor, window: &mut Window, cx: &mut Context<NotionEditor>) {
-    if std::env::var("NOTION_DEMO").is_ok() {
+fn open_demo_state(editor: &mut RifflyEditor, window: &mut Window, cx: &mut Context<RifflyEditor>) {
+    if std::env::var("RIFFLY_DEMO").is_ok() {
         window.activate_window();
     }
     // The gutter aid is its own switch, so it cannot ride along with a demo
     // that was asked for something else.
-    if std::env::var("NOTION_GUTTER").as_deref() == Ok("always") {
+    if std::env::var("RIFFLY_GUTTER").as_deref() == Ok("always") {
         editor.show_gutter_always();
     }
-    match std::env::var("NOTION_DEMO").as_deref() {
+    match std::env::var("RIFFLY_DEMO").as_deref() {
         Ok("toolbar") => editor.select_text_in_block(3, 0..12, window, cx),
         Ok("focus") => editor.select_text_in_block(3, 5..5, window, cx),
         Ok("caret") => {
             // Review aid: put the caret at a byte offset inside block 1, so
             // two runs can be compared pixel by pixel.
-            let at: usize = std::env::var("NOTION_CARET")
+            let at: usize = std::env::var("RIFFLY_CARET")
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(0);
@@ -99,11 +100,26 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
 
-        // Review aid: `NOTION_THEME=dark` starts in the dark palette, and
-        // `NOTION_FONT_SIZE=<px>` changes the base the document is measured
+        // Review aid: `RIFFLY_THEME=dark` starts in the dark palette, and
+        // `RIFFLY_FONT_SIZE=<px>` changes the base the document is measured
         // in — the whole editor scales with it, headings and gutters and
         // tables together.
-        let dark = std::env::var("NOTION_THEME").as_deref() == Ok("dark");
+        // Otherwise the palette is the one picked last time, or the
+        // system's when none has been picked.
+        let config_dir = workspace::default_config_dir();
+        let saved = workspace::settings::Settings::load(config_dir.as_deref()).appearance;
+        let dark = match std::env::var("RIFFLY_THEME").as_deref() {
+            Ok("dark") => true,
+            Ok(_) => false,
+            Err(_) => match saved {
+                Some(workspace::settings::Appearance::Dark) => true,
+                Some(workspace::settings::Appearance::Light) => false,
+                None => matches!(
+                    cx.window_appearance(),
+                    WindowAppearance::Dark | WindowAppearance::VibrantDark
+                ),
+            },
+        };
         gpui_kit::component::Theme::change(
             if dark {
                 gpui_kit::component::ThemeMode::Dark
@@ -113,7 +129,7 @@ fn main() {
             None,
             cx,
         );
-        if let Ok(size) = std::env::var("NOTION_FONT_SIZE")
+        if let Ok(size) = std::env::var("RIFFLY_FONT_SIZE")
             && let Ok(size) = size.parse::<f32>()
         {
             cx.global_mut::<gpui_kit::component::Theme>().font_size = px(size);
@@ -121,10 +137,18 @@ fn main() {
 
         editor::init(cx);
         editor::theme::init_appearance_actions(cx);
+        workspace::init(cx);
+
+        // Files named on the command line open in tabs; with none, the demo
+        // document does.
+        let files: Vec<std::path::PathBuf> = std::env::args_os()
+            .skip(1)
+            .map(std::path::PathBuf::from)
+            .collect();
 
         // The document wears the template's own palette unless the reader
-        // asks for the framework's: `NOTION_PALETTE=kit`.
-        if std::env::var("NOTION_PALETTE").as_deref() != Ok("kit")
+        // asks for the framework's: `RIFFLY_PALETTE=kit`.
+        if std::env::var("RIFFLY_PALETTE").as_deref() != Ok("kit")
             && let Err(error) = editor::theme::apply_template_palette(cx)
         {
             eprintln!("the template palette could not be loaded: {error}");
@@ -138,9 +162,17 @@ fn main() {
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {
                 let view = cx.new(|cx| {
-                    let mut editor = NotionEditor::with_content(demo_document(), window, cx);
-                    open_demo_state(&mut editor, window, cx);
-                    editor
+                    let mut workspace = Workspace::new(config_dir.clone(), cx);
+                    if files.is_empty() {
+                        let editor = workspace.add_tab(demo_document(), None, window, cx);
+                        editor.update(cx, |editor, cx| open_demo_state(editor, window, cx));
+                    } else {
+                        for file in files {
+                            workspace.open_path(file, window, cx);
+                        }
+                    }
+                    workspace.guard_window_close(window, cx);
+                    workspace
                 });
                 cx.new(|cx| Root::new(view, window, cx))
             })

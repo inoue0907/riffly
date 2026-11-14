@@ -11,9 +11,9 @@ use gpui_kit::{App, Context, SharedString, Window};
 use super::block::{BlockAttrs, BlockContent, BlockId, BlockRegistry, BlockType, types};
 use super::mark::{Edit, HighlightColor, MarkKind, TextColor};
 use super::history::Step;
-use super::view::{Caret, DocumentChanged, NotionEditor};
+use super::view::{Caret, DocumentChanged, RifflyEditor};
 
-impl NotionEditor {
+impl RifflyEditor {
     // ----------------------------------------------------------------- marks
 
     /// Tiptap `toggleMark`. With a selection it formats it; with a bare caret

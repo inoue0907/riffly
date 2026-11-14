@@ -1,14 +1,17 @@
-# gpui-notion
+# Riffly
 
-[![CI](https://github.com/orthory/gpui-notion/actions/workflows/ci.yml/badge.svg)](https://github.com/orthory/gpui-notion/actions/workflows/ci.yml)
+[![CI](https://github.com/inoue0907/riffly/actions/workflows/ci.yml/badge.svg)](https://github.com/inoue0907/riffly/actions/workflows/ci.yml)
 
-A Notion-like block editor written in Rust on [GPUI](https://www.gpui.rs) through
-[`gpui-kit`](https://github.com/longbridge/gpui-kit), with the feature surface and command
-names of Tiptap's [Notion-like editor template](https://tiptap.dev/docs/ui-components/templates/notion-like-editor).
+<img src="assets/icon/riffly.png" width="96" align="right" alt="">
+
+A block editor for quickly reading, reviewing and fixing markdown — the kind of file an
+AI just wrote. Open it, riffle through it, fix what needs fixing, save. Written in Rust on
+[GPUI](https://www.gpui.rs) through [`gpui-kit`](https://github.com/longbridge/gpui-kit).
 
 ```bash
-cargo run            # the demo document
-cargo test           # unit tests + UI integration tests
+cargo run                  # the demo document
+cargo run -- notes.md a.md # open files in tabs
+cargo test                 # unit tests + UI integration tests
 ```
 
 Requires a Rust toolchain with the 2024 edition and, on Linux, the libraries GPUI
@@ -22,6 +25,14 @@ sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
 
 ## What it does
 
+- **Files**: documents are markdown on disk. Open several, save, save as; unsaved tabs
+  are marked and closing one (or the window) asks first.
+- **Tabs and panes**: every document is a tab; split the window into panes side by side,
+  drag tabs between them, drag a divider to resize (double-click to equalize).
+- **Sidebar**: the active document's outline (click a heading to jump to it) and the
+  files opened lately. Both work from the keyboard too.
+- **Light and dark**: follows the system until you pick one, then remembers it.
+- **Every action has a shortcut**: press `F1` for the full list.
 - **Blocks**: paragraph, heading 1–3, bullet / numbered / to-do lists (nested), blockquote,
   code block with syntax highlighting and a language menu, separator, image (click or drop
   a file), callout, toggle, table.
@@ -42,8 +53,9 @@ sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
 - **Document undo/redo** with typing coalescing, clipboard as markdown (tables included),
   paste that becomes blocks.
 
-Parity is graded item by item against the template in [`docs/PARITY.md`](docs/PARITY.md).
-The spec it is graded against is [`docs/research/tiptap-notion-spec.md`](docs/research/tiptap-notion-spec.md),
+The editor's feature surface and command names follow Tiptap's block editor template.
+Parity with it is graded item by item in [`docs/PARITY.md`](docs/PARITY.md), against the
+spec in [`docs/research/tiptap-template-spec.md`](docs/research/tiptap-template-spec.md),
 extracted from Tiptap's docs and shipped bundle.
 
 ## Architecture
@@ -51,7 +63,10 @@ extracted from Tiptap's docs and shipped bundle.
 One entity owns the document; each block owns the input that renders it.
 
 ```
-NotionEditor (Entity)            src/editor/view.rs
+Workspace (Entity)               src/workspace/mod.rs
+└── panes → tabs → RifflyEditor  one editor per open document
+
+RifflyEditor (Entity)            src/editor/view.rs
 ├── Vec<Block>                   src/editor/block.rs
 │   ├── ty: BlockType + attrs    node type, heading level, checked, language…
 │   ├── text: String             mirror of the input, used to diff edits
@@ -93,7 +108,7 @@ Node types are data. Implement [`BlockSpec`](src/editor/block.rs) and register i
 menu, the markdown rules, the turn-into menu and the layout all pick it up.
 
 ```rust
-use gpui_notion::editor::block::*;
+use riffly::editor::block::*;
 
 struct Warning;
 
@@ -130,7 +145,7 @@ impl BlockSpec for Warning {
     }
 }
 
-// in your app's init, after `gpui_notion::editor::init(cx)`
+// in your app's init, after `riffly::editor::init(cx)`
 BlockRegistry::register(cx, Warning);
 ```
 
@@ -175,19 +190,23 @@ The closure is kept and re-applied on top of freshly derived values whenever the
 `gpui-kit` theme changes, so a customized editor stays customized across light, dark
 and every base size.
 
-The document ships in the template's own palette: `editor::theme::apply_template_palette`
-installs [`assets/themes/notion.json`](assets/themes/notion.json) as the theme's light
-and dark configurations — page, border, selection, caret and the brand link colour — and
-sets the Notion text and highlight palettes and the gray-ramp code surfaces alongside it.
-Because it becomes the theme, switching appearance keeps it. `NOTION_PALETTE=kit` starts
-in the plain `gpui-kit` palette instead.
+The document ships in Riffly's own palette — white and warm grays with one blue accent:
+`editor::theme::apply_template_palette` installs
+[`assets/themes/riffly.json`](assets/themes/riffly.json) as the theme's light and dark
+configurations — page, border, selection, caret, sidebar and tabs — and sets the text and
+highlight palettes and the code surfaces alongside it. Because it becomes the theme,
+switching appearance keeps it. `RIFFLY_PALETTE=kit` starts in the plain `gpui-kit`
+palette instead.
 
 Appearance and zoom are the application's to own; `editor::theme::init_appearance_actions`
 installs a ready-made set (`Mod+Shift+L` to switch palette, `Mod+=`, `Mod+-`, `Mod+0`
-to change the base size), and the demo binary also takes `NOTION_THEME=dark` and
-`NOTION_FONT_SIZE=<px>`.
+to change the base size), and the binary also takes `RIFFLY_THEME=dark` and
+`RIFFLY_FONT_SIZE=<px>`.
 
 ## Keyboard
+
+The editor's keys are below; the workspace's (files, tabs, panes, sidebar) are listed in
+the app itself — press `F1`.
 
 | Keys | Command |
 | --- | --- |
@@ -213,15 +232,16 @@ to change the base size), and the demo binary also takes `NOTION_THEME=dark` and
 
 ## Testing
 
-`tests/editing.rs` drives the real UI headlessly with `#[gpui_kit::test]`: it clicks,
-types, presses keys and drags, then asserts the document. Unit tests for the mark algebra
+`tests/editing.rs` and `tests/workspace.rs` drive the real UI headlessly with
+`#[gpui_kit::test]`: they click, type, press keys and drag, then assert the document and
+the tabs, panes and files. Unit tests for the mark algebra
 live beside it in `src/editor/mark.rs`.
 
 ```bash
 cargo test --test editing        # UI integration tests
-NOTION_DEMO=toolbar cargo run    # open the window with the selection toolbar shown
-NOTION_DEMO=comment cargo run    # … with a comment thread open (also: slash, toolbar, caret)
-NOTION_GUTTER=always cargo run   # … with every block's gutter controls drawn, for screenshots
+RIFFLY_DEMO=toolbar cargo run    # open the window with the selection toolbar shown
+RIFFLY_DEMO=comment cargo run    # … with a comment thread open (also: slash, toolbar, caret)
+RIFFLY_GUTTER=always cargo run   # … with every block's gutter controls drawn, for screenshots
 ```
 
 ## Notes and limits
@@ -232,6 +252,17 @@ switching (real superscript baselines, monospace inline code) is unavailable, an
 multi-line inputs do not support per-block text alignment. Table cells hold plain text (no
 marks, no column resizing or merging), and image blocks take a picked or dropped file but
 have no upload progress, size limits or captions.
+
+## Icon
+
+[`assets/icon/riffly.ico`](assets/icon/riffly.ico) is drawn by
+[`tools/make_icon.py`](tools/make_icon.py) and embedded in the Windows executable by
+[`build.rs`](build.rs), which is what puts it on the title bar and the taskbar.
+
+## Credits
+
+Riffly began as a fork of [orthory/gpui-notion](https://github.com/orthory/gpui-notion),
+whose block editor it is built on.
 
 ## License
 

@@ -1,6 +1,6 @@
 //! Document-level undo and redo.
 //!
-//! Each block input keeps its own undo stack, but a Notion-like editor undoes
+//! Each block input keeps its own undo stack, but a block editor undoes
 //! the document: splitting a block, turning it into a heading and typing into
 //! it are all steps in one history. The editor therefore takes the `Undo` and
 //! `Redo` actions for itself and replays whole-document snapshots.
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::{Context, Focusable as _, Window};
 
 use super::block::{BlockContent, BlockId};
-use super::view::{Caret, NotionEditor};
+use super::view::{Caret, RifflyEditor};
 
 /// Typing within this window of the last recorded step joins that step,
 /// matching the grouping a text editor's own history uses.
@@ -64,7 +64,7 @@ impl History {
     }
 }
 
-impl NotionEditor {
+impl RifflyEditor {
     /// Snapshot the document before a change, unless it joins the last step.
     pub(crate) fn record(&mut self, step: Step, cx: &Context<Self>) {
         if self.history.replaying || self.history.joins_last(step) {

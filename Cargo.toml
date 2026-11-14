@@ -1,20 +1,20 @@
 [package]
-name = "gpui-notion"
+name = "riffly"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "A Notion-like block editor for GPUI, with Tiptap's Notion-like editor template as its feature surface"
+description = "Riffly: a block editor for quickly reading, reviewing and fixing markdown, built on GPUI"
 license = "MIT"
-repository = "https://github.com/orthory/gpui-notion"
-keywords = ["gpui", "editor", "notion", "tiptap", "rich-text"]
+repository = "https://github.com/inoue0907/riffly"
+keywords = ["gpui", "editor", "markdown", "review", "rich-text"]
 categories = ["gui", "text-editors"]
 
 [lib]
-name = "gpui_notion"
+name = "riffly"
 path = "src/lib.rs"
 
 [[bin]]
-name = "gpui-notion"
+name = "riffly"
 path = "src/main.rs"
 
 [dependencies]
@@ -34,3 +34,6 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[build-dependencies]
+winresource = "0.1.34"

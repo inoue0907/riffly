@@ -1,4 +1,4 @@
-//! A Notion-like block editor for GPUI, built on `gpui-kit`.
+//! Riffly's block editor, for GPUI, built on `gpui-kit`.
 //!
 //! The document is a flat list of [`block::Block`]s, each backed by its own
 //! `EditorState`; inline formatting lives in [`mark::MarkList`] and is rendered
@@ -19,6 +19,7 @@ pub mod history;
 pub mod input_rules;
 pub mod keymap;
 pub mod mark;
+pub mod markdown;
 pub mod selection;
 pub mod slash;
 pub mod suggestion;
@@ -35,7 +36,7 @@ pub use fit::InputFit;
 pub use grid::{Cell, CellGrid, CellPosition, table_content};
 pub use mark::{HighlightColor, Mark, MarkKind, MarkList, TextColor};
 pub use theme::{ActiveEditorTheme, EditorTheme, HeadingStyle, HighlightPalette, TextPalette};
-pub use view::NotionEditor;
+pub use view::{RifflyEditor, OutlineItem};
 
 /// Initialise the editor: tokens, node types, actions and key bindings.
 ///

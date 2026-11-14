@@ -14,9 +14,9 @@ use gpui_kit::{App, Context, InteractiveElement, Window};
 use super::actions;
 use super::block::types;
 use super::mark::{HighlightColor, MarkKind};
-use super::view::{Caret, NotionEditor};
+use super::view::{Caret, RifflyEditor};
 
-impl NotionEditor {
+impl RifflyEditor {
     /// Caret row within the block's wrapped text, and the row count.
     pub(crate) fn caret_row(&self, ix: usize, cx: &App) -> Option<(usize, usize)> {
         let state = self.blocks[ix].state.read(cx);
@@ -469,7 +469,7 @@ impl NotionEditor {
     }
 
     /// Typing with whole blocks selected replaces them, the way it does in a
-    /// word processor and in Notion.
+    /// word processor and in block editors.
     fn on_typing_over_blocks(
         &mut self,
         event: &gpui_kit::KeyDownEvent,
@@ -533,7 +533,7 @@ impl NotionEditor {
             cx.stop_propagation();
             return;
         }
-        // Escape with a caret selects the block as a node, as Notion does.
+        // Escape with a caret selects the block as a node.
         let Some(id) = self.focused else { return };
         self.selected = vec![id];
         self.take_focus_from_blocks(window, cx);

@@ -8,19 +8,19 @@ use super::mark::{HighlightColor, TextColor};
 
 /// Setting a code block's language, dispatched by its language menu.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Action)]
-#[action(namespace = notion, no_json)]
+#[action(namespace = riffly, no_json)]
 pub struct SetCodeLanguage(pub &'static str);
 
 /// Applying one of the palette colors, dispatched by the color menus.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Action)]
-#[action(namespace = notion, no_json)]
+#[action(namespace = riffly, no_json)]
 pub enum ApplyColor {
     Text(TextColor),
     Highlight(HighlightColor),
 }
 
 actions!(
-    notion,
+    riffly,
     [
         ToggleBold,
         ToggleItalic,
@@ -63,7 +63,7 @@ actions!(
 );
 
 /// Key context of the editor surface; bindings below resolve inside it.
-pub const CONTEXT: &str = "NotionEditor";
+pub const CONTEXT: &str = "RifflyEditor";
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([

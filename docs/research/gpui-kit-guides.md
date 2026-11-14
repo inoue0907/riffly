@@ -1,4 +1,4 @@
-# GPUI Kit guides — actionable checklist (for gpui-notion)
+# GPUI Kit guides — actionable checklist (for Riffly)
 
 Condensed from the normative guides. Citation keys (all under `/tmp/gpui-kit-probe/skills/`):
 `CG` = `gpui-kit/references/coding-guides.md` · `DG` = `gpui-kit-design-guides/references/design-guides.md` ·
@@ -116,7 +116,7 @@ Condensed from the normative guides. Citation keys (all under `/tmp/gpui-kit-pro
 Findings from `src/editor/**` measured against the rules above.
 
 1. **110 raw `px(...)`/`rgb(...)` occurrences** (`blocks.rs` 44, `gutter.rs` 17, `style.rs` 14, `view.rs` 10, `slash.rs` 9, `ui.rs` 9, `block.rs` 5). Rule: application layout must not call `px()` and must not construct raw colors — use rem helpers/component sizes and `cx.theme()` roles, or define the missing role in a product token layer. `CG:357`, `CG:428`, `DG:382`
-2. **`Entity<NotionEditor>` holding `Vec<Block>` + all editing, selection, slash-menu and overlay state** risks "one entity containing the entire application's unrelated state". Rule: narrowest correct owner; split document model / selection / overlay state so updates and notifies stay local. `CG:211`, `CG:843`
+2. **`Entity<RifflyEditor>` holding `Vec<Block>` + all editing, selection, slash-menu and overlay state** risks "one entity containing the entire application's unrelated state". Rule: narrowest correct owner; split document model / selection / overlay state so updates and notifies stay local. `CG:211`, `CG:843`
 3. **Each block owning `Entity<EditorState>` while the parent also caches block text** is a classic duplicated-state drift and a feedback loop: parent writes a value into the state which re-emits `InputEvent::Change` back. Rule: controlled value with one source of truth + origin tracking so one logical change is reported once. `CG:225`, `CG:249`
 4. **`.id(("block", id.0 as usize))`** (`view.rs:556`) is domain-derived — keep it that way; audit every other repeated child (gutter buttons, slash items, marks) for index-derived or per-frame IDs and namespace them under the block ID. `CG:261`, `CG:262`, `CG:265`
 5. **Block-level subscriptions vector** (`view.rs:174`–`206`, `block.rs:386,:392`): confirm subscriptions are dropped when a block is deleted and recreated on re-insert, and that no block subscribes back to the editor (mutual subscription loop). `EV:196`, `EV:224`
@@ -140,10 +140,10 @@ use gpui_kit::{AppContext, Context, Entity, TestAppContext, Window, component::R
 #[gpui_kit::test]
 fn typing_splits_a_block(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);          // 1. init first
-    cx.update(gpui_notion::editor::init);
+    cx.update(riffly::editor::init);
     let mut editor = None;
     let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
-        let view = cx.new(|cx| NotionEditor::new(window, cx)); // production view + ctor
+        let view = cx.new(|cx| RifflyEditor::new(window, cx)); // production view + ctor
         editor = Some(view.clone());
         Root::new(view, window, cx)      // 2. wrap in Root; mount overlay layers in render
     });
@@ -176,7 +176,7 @@ fn typing_splits_a_block(cx: &mut TestAppContext) {
 - Always include a negative case (disabled control rejects the interaction, invalid input blocks save) and assert the visible outcome after each meaningful action. `T:65`
 - Not covered in-process: pixels, packaged-app behavior, full OS IME composition. `label()` is the accessibility name, not rendered text. `T:228`, `T:222`
 
-## 5. Audit of gpui-notion
+## 5. Audit of Riffly
 
 Format: `path:line — rule broken (citation) — fix`.
 
@@ -184,11 +184,11 @@ Format: `path:line — rule broken (citation) — fix`.
 
 - `src/editor/block.rs:386,:392` — `pub state: Entity<EditorState>` and `pub subscriptions: Vec<Subscription>` publish behavioral state across the seam; private fields are the default for state that must evolve (`CG:616`) — make both private, expose `state(&self) -> &Entity<EditorState>`, and keep subscription ownership an implementation detail.
 - `src/editor/block.rs:382` — `pub text: String` mirrors `EditorState`'s value, a second source of truth that must be resynced on every `InputEvent::Change` (`CG:225`, `CG:249`) — keep the mirror but make it private with a `text()` reader, and document in one place that `EditorState` is authoritative and `text` is the diff snapshot.
-- `src/editor/view.rs:33-48` — one `NotionEditor` entity owns document, focus, hover, node selection, slash menu, drag target and wrap width; "one entity containing the entire application's unrelated state" is a named failure mode (`CG:843`, `CG:211`) — split at least the transient interaction state (`hovered`, `selected`, `slash`, `drop_target`) into a `SelectionState`/`SlashMenuState` so an edit does not notify the drag machinery.
+- `src/editor/view.rs:33-48` — one `RifflyEditor` entity owns document, focus, hover, node selection, slash menu, drag target and wrap width; "one entity containing the entire application's unrelated state" is a named failure mode (`CG:843`, `CG:211`) — split at least the transient interaction state (`hovered`, `selected`, `slash`, `drop_target`) into a `SelectionState`/`SlashMenuState` so an edit does not notify the drag machinery.
 - `src/editor/slash.rs:21-28` — `SlashMenu` is retained interaction state with `pub` fields mutated from several modules (`slash.rs:141`, `keymap.rs:301`) (`CG:616`, `CG:211`) — private fields + `query()`, `selected_ix()`, `select(delta)`.
 - `src/editor/block.rs:452-466` — `BlockContent` builders are correct (`with_attrs`/`with_marks`/`with_indent`, `CG:685`); keep that shape when the type gains fields.
 - `src/editor/view.rs:181` — per-block `cx.subscribe_in` stored on the block is right (`EV:196`, `US:7`); verify `remove_block` (`view.rs:230`) drops them — it does, via `Vec::remove`. No change.
-- `src/editor/block.rs:200`, `src/editor/slash.rs:35` — `run: fn(&mut NotionEditor, …)` hard-wires the registry to the concrete view, so `BlockSpec` cannot be reused by another host (`CG:28`, dependency direction) — take a command enum or a `&mut dyn BlockCommands` seam instead.
+- `src/editor/block.rs:200`, `src/editor/slash.rs:35` — `run: fn(&mut RifflyEditor, …)` hard-wires the registry to the concrete view, so `BlockSpec` cannot be reused by another host (`CG:28`, dependency direction) — take a command enum or a `&mut dyn BlockCommands` seam instead.
 
 ### ElementId stability
 

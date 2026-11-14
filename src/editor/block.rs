@@ -17,7 +17,7 @@ use gpui_kit::{
 
 use super::mark::{MarkKind, MarkList};
 use super::theme::EditorTheme;
-use super::view::NotionEditor;
+use super::view::RifflyEditor;
 
 /// Stable identity of a block, used by focus, drag & drop and selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -87,7 +87,7 @@ impl BlockAttrs {
 }
 
 /// What a node type permits, mirroring the ProseMirror schema flags the
-/// Notion-like editor relies on.
+/// editor relies on.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockCaps {
     /// Holds editable text (false for separators and images).
@@ -213,7 +213,7 @@ pub struct SlashItem {
     pub group: &'static str,
     pub icon: &'static str,
     /// What the item does; the query text has already been removed.
-    pub run: fn(&mut NotionEditor, &mut Window, &mut gpui_kit::Context<NotionEditor>),
+    pub run: fn(&mut RifflyEditor, &mut Window, &mut gpui_kit::Context<RifflyEditor>),
 }
 
 /// Everything a spec needs to render one block.
@@ -238,7 +238,7 @@ pub struct BlockContext<'a> {
     pub leading_width: Pixels,
     /// The tokens the document is drawn with.
     pub theme: std::rc::Rc<EditorTheme>,
-    pub editor: WeakEntity<NotionEditor>,
+    pub editor: WeakEntity<RifflyEditor>,
 }
 
 /// The behavior of a node type. Implement it and register it to add a block.
