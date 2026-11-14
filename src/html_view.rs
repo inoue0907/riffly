@@ -411,6 +411,8 @@ mod tests {
         assert_eq!(keystroke(&key("F1", "F1", false, false, false)).unwrap(), "f1");
     }
 
+    // A Windows path; elsewhere `C:\...` is not an absolute path at all.
+    #[cfg(windows)]
     #[test]
     fn paths_become_file_urls() {
         let url = file_url(Path::new(r"C:\Users\me\My Docs\page 1.html"));
