@@ -209,8 +209,11 @@ fn main() {
 
         // The document wears the template's own palette unless the reader
         // asks for the framework's: `RIFFLY_PALETTE=kit`.
+        let color_theme = workspace::settings::Settings::load(config_dir.as_deref())
+            .color_theme
+            .unwrap_or_else(|| "riffly".into());
         if std::env::var("RIFFLY_PALETTE").as_deref() != Ok("kit")
-            && let Err(error) = editor::theme::apply_template_palette(cx)
+            && let Err(error) = editor::theme::apply_color_theme(&color_theme, cx)
         {
             eprintln!("the template palette could not be loaded: {error}");
         }

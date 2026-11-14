@@ -53,7 +53,9 @@ sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
   drag tabs between them, drag a divider to resize (double-click to equalize).
 - **Sidebar**: the active document's outline (click a heading to jump to it) and the
   files opened lately. Both work from the keyboard too.
-- **Light and dark**: follows the system until you pick one, then remembers it.
+- **Colour themes**: Riffly's own, GitHub, Nord, One and Solarized, each light and dark —
+  pick one from the palette button in the sidebar or cycle with `Ctrl+Alt+T`. Light or
+  dark follows the system until you pick one; both choices are remembered.
 - **Picks up where you left off**: the window opens where it was, at the size it was
   (maximized or not), unless that screen is gone.
 - **Every action has a shortcut**: press `F1` for the full list.

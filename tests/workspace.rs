@@ -534,3 +534,40 @@ fn the_welcome_document_is_for_the_first_start_only(cx: &mut TestAppContext) {
     assert!(!second, "and only once");
     assert!(workspace::settings::Settings::load(Some(&h.dir.join("config"))).welcomed);
 }
+
+#[gpui_kit::test]
+fn colour_themes_switch_and_are_remembered(cx: &mut TestAppContext) {
+    use gpui_kit::component::{Theme, ThemeMode};
+    let h = setup(cx, "themes");
+    cx.update(|cx| riffly::editor::theme::apply_template_palette(cx).unwrap());
+
+    // Every theme loads, light and dark, and sets its own page colour.
+    for theme in riffly::editor::theme::COLOR_THEMES {
+        h.ui(cx, |workspace, _, cx| {
+            workspace.update(cx, |workspace, cx| workspace.set_color_theme(theme.id, cx))
+        });
+        let light = cx.update(|cx| {
+            Theme::change(ThemeMode::Light, None, cx);
+            Theme::global(cx).background
+        });
+        let dark = cx.update(|cx| {
+            Theme::change(ThemeMode::Dark, None, cx);
+            Theme::global(cx).background
+        });
+        assert_ne!(light, dark, "{} has two sides", theme.name);
+    }
+
+    h.ui(cx, |workspace, _, cx| {
+        workspace.update(cx, |workspace, cx| workspace.set_color_theme("nord", cx))
+    });
+    cx.update(|cx| {
+        Theme::change(ThemeMode::Dark, None, cx);
+        assert_eq!(Theme::global(cx).background, gpui_kit::rgb(0x2e3440).into(), "Nord's page");
+    });
+    let saved = workspace::settings::Settings::load(Some(&h.dir.join("config")));
+    assert_eq!(saved.color_theme.as_deref(), Some("nord"));
+
+    // Ctrl+Alt+T moves on to the next one.
+    h.ui(cx, |workspace, _, cx| workspace.update(cx, |workspace, cx| workspace.next_color_theme(cx)));
+    cx.update(|cx| assert_eq!(h.workspace.read(cx).color_theme().id, "one"));
+}

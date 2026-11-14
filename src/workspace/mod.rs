@@ -14,7 +14,9 @@ pub mod settings;
 
 use std::path::{Path, PathBuf};
 
-use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::DropdownMenu as _;
+use gpui_kit::component::{ActiveTheme, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
@@ -73,6 +75,13 @@ actions!(
 #[action(namespace = workspace, no_json)]
 pub struct ActivateTab(pub usize);
 
+/// Switch to one of the colour themes, by id; the theme menu dispatches it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, gpui_kit::Action)]
+#[action(namespace = workspace, no_json)]
+pub struct SetColorTheme(pub &'static str);
+
+actions!(workspace, [NextColorTheme]);
+
 /// Key context of the sidebar while it has the keyboard.
 pub const SIDEBAR_CONTEXT: &str = "WorkspaceSidebar";
 
@@ -129,6 +138,7 @@ pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         "View",
         &[
             ("Ctrl+Shift+L", "Light / dark mode"),
+            ("Ctrl+Alt+T", "Next colour theme (Riffly, GitHub, Nord, One, Solarized)"),
             ("Ctrl+= / Ctrl+-", "Zoom in / out"),
             ("Ctrl+0", "Reset zoom"),
             ("F1", "Show / hide this list"),
@@ -228,6 +238,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-shift-o", FocusOutline, Some(CONTEXT)),
         KeyBinding::new("secondary-shift-r", FocusRecent, Some(CONTEXT)),
         KeyBinding::new("f1", ToggleShortcuts, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-t", NextColorTheme, Some(CONTEXT)),
         KeyBinding::new("down", SidebarDown, Some(SIDEBAR_CONTEXT)),
         KeyBinding::new("up", SidebarUp, Some(SIDEBAR_CONTEXT)),
         KeyBinding::new("enter", SidebarConfirm, Some(SIDEBAR_CONTEXT)),
@@ -603,6 +614,31 @@ impl Workspace {
     }
 
     /// Switch between the light and dark palettes and remember the choice.
+    /// The colour theme in use.
+    pub fn color_theme(&self) -> &'static crate::editor::theme::ColorTheme {
+        crate::editor::theme::color_theme(self.settings.color_theme.as_deref().unwrap_or("riffly"))
+    }
+
+    /// Switch colour theme, keeping light or dark, and remember it.
+    pub fn set_color_theme(&mut self, id: &str, cx: &mut Context<Self>) {
+        let theme = crate::editor::theme::color_theme(id);
+        if let Err(error) = crate::editor::theme::apply_color_theme(theme.id, cx) {
+            self.error = Some(format!("Couldn't switch theme: {error}").into());
+        }
+        self.settings.color_theme = Some(theme.id.to_string());
+        let _ = self.settings.save(self.config_dir.as_deref());
+        cx.refresh_windows();
+        cx.notify();
+    }
+
+    /// Ctrl+Alt+T: the next colour theme, round the list.
+    pub fn next_color_theme(&mut self, cx: &mut Context<Self>) {
+        let themes = crate::editor::theme::COLOR_THEMES;
+        let at = themes.iter().position(|t| t.id == self.color_theme().id).unwrap_or(0);
+        let next = themes[(at + 1) % themes.len()].id;
+        self.set_color_theme(next, cx);
+    }
+
     pub fn toggle_appearance(&mut self, cx: &mut Context<Self>) {
         crate::editor::theme::toggle_appearance(cx);
         self.settings.appearance = Some(if cx.theme().mode.is_dark() {
@@ -2049,6 +2085,26 @@ impl Workspace {
                         ),
                     )
                     .child(div().flex_1())
+                    .child({
+                        let current = self.color_theme().id;
+                        let focus = self.focus_handle.clone();
+                        Button::new("color-theme")
+                            .ghost()
+                            .small()
+                            .icon(crate::editor::ui::Lucide("palette"))
+                            .tooltip("Colour theme (Ctrl+Alt+T)")
+                            .dropdown_menu(move |menu, _, _| {
+                                let mut menu = menu.action_context(focus.clone());
+                                for theme in crate::editor::theme::COLOR_THEMES {
+                                    menu = menu.menu_with_check(
+                                        theme.name,
+                                        theme.id == current,
+                                        Box::new(SetColorTheme(theme.id)),
+                                    );
+                                }
+                                menu
+                            })
+                    })
                     .child(
                         toolbar_icon("show-shortcuts", "keyboard", "Keyboard shortcuts (F1)", cx)
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -2300,6 +2356,10 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleAppearance, _, cx| this.toggle_appearance(cx)))
+            .on_action(cx.listener(|this, action: &SetColorTheme, _, cx| {
+                this.set_color_theme(action.0, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NextColorTheme, _, cx| this.next_color_theme(cx)))
             .on_action(cx.listener(|this, _: &ClosePane, window, cx| this.close_pane(window, cx)))
             .on_action(cx.listener(|this, _: &FocusPreviousPane, window, cx| {
                 let len = this.panes.len();

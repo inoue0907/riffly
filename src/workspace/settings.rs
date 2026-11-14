@@ -21,6 +21,10 @@ pub struct Settings {
     /// The palette the reader picked; `None` follows the system.
     #[serde(default)]
     pub appearance: Option<Appearance>,
+    /// The colour theme picked (see `editor::theme::COLOR_THEMES`); `None`
+    /// is Riffly's own.
+    #[serde(default)]
+    pub color_theme: Option<String>,
     /// Where the window was when it was last closed.
     #[serde(default)]
     pub window: Option<Placement>,
@@ -156,6 +160,7 @@ mod tests {
 
         let settings = Settings {
             appearance: Some(Appearance::Dark),
+            color_theme: Some("nord".into()),
             window: Some(Placement {
                 x: 120.,
                 y: 80.,

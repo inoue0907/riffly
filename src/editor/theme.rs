@@ -468,21 +468,70 @@ pub fn zoom(step: isize, cx: &mut App) {
 
 // ----------------------------------------------------------- template palette
 
-/// Riffly's palette, as a `gpui-kit` theme set.
-const TEMPLATE_THEMES: &str = include_str!("../../assets/themes/riffly.json");
+/// A colour theme Riffly ships: a light side and a dark side, which the
+/// appearance switch moves between.
+pub struct ColorTheme {
+    /// What the settings remember it by.
+    pub id: &'static str,
+    pub name: &'static str,
+    source: &'static str,
+}
 
-/// Set the editor's document colours to Riffly's palette, for both
-/// appearances: white and warm grays with one blue accent.
-///
-/// The palette is installed as the theme's light and dark configurations, so
-/// switching appearance keeps it — it is the application's theme from then on,
-/// not a coat of paint over the framework's. The mark palettes, which are the
-/// editor's own, are set alongside it.
+/// Riffly's own (white and warm grays, one blue accent) and four well-known
+/// themes, drawn by `tools/make_themes.py` from the colours they publish.
+pub const COLOR_THEMES: &[ColorTheme] = &[
+    ColorTheme {
+        id: "riffly",
+        name: "Riffly",
+        source: include_str!("../../assets/themes/riffly.json"),
+    },
+    ColorTheme {
+        id: "github",
+        name: "GitHub",
+        source: include_str!("../../assets/themes/github.json"),
+    },
+    ColorTheme {
+        id: "nord",
+        name: "Nord",
+        source: include_str!("../../assets/themes/nord.json"),
+    },
+    ColorTheme {
+        id: "one",
+        name: "One",
+        source: include_str!("../../assets/themes/one.json"),
+    },
+    ColorTheme {
+        id: "solarized",
+        name: "Solarized",
+        source: include_str!("../../assets/themes/solarized.json"),
+    },
+];
+
+/// The theme the settings name, or Riffly's own.
+pub fn color_theme(id: &str) -> &'static ColorTheme {
+    COLOR_THEMES
+        .iter()
+        .find(|theme| theme.id == id)
+        .unwrap_or(&COLOR_THEMES[0])
+}
+
+/// Set the editor's document colours to Riffly's own palette.
 pub fn apply_template_palette(cx: &mut App) -> anyhow::Result<()> {
+    apply_color_theme("riffly", cx)
+}
+
+/// Install a colour theme as the framework theme's light and dark sides,
+/// keeping the current appearance and text size, and set the editor's own
+/// colours (code, callouts, marks) to go with it.
+///
+/// It becomes the application's theme, not a coat of paint over the
+/// framework's, so switching appearance keeps it.
+pub fn apply_color_theme(id: &str, cx: &mut App) -> anyhow::Result<()> {
     use gpui_kit::component::ThemeMode;
     use std::rc::Rc as StdRc;
 
-    let set: gpui_kit::component::ThemeSet = serde_json::from_str(TEMPLATE_THEMES)?;
+    let chosen = color_theme(id);
+    let set: gpui_kit::component::ThemeSet = serde_json::from_str(chosen.source)?;
     let (mut light, mut dark) = (None, None);
     for config in set.themes {
         if config.mode.is_dark() {
@@ -492,7 +541,7 @@ pub fn apply_template_palette(cx: &mut App) -> anyhow::Result<()> {
         }
     }
     let (Some(light), Some(dark)) = (light, dark) else {
-        anyhow::bail!("the template palette needs a light and a dark theme");
+        anyhow::bail!("the {} theme needs a light and a dark side", chosen.name);
     };
 
     let mode = cx.theme().mode;
@@ -505,10 +554,11 @@ pub fn apply_template_palette(cx: &mut App) -> anyhow::Result<()> {
     Theme::change(mode, None, cx);
     cx.global_mut::<Theme>().font_size = size;
 
-    EditorTheme::customize(cx, |theme, kit| {
+    let own = chosen.id == "riffly";
+    EditorTheme::customize(cx, move |theme, kit| {
         let dark = kit.mode == ThemeMode::Dark;
         // The text and highlight palettes: warm, muted colours that stay
-        // legible on both pages; see docs/research/tiptap-template-spec.md §2.
+        // legible on every page; see docs/research/tiptap-template-spec.md §2.
         theme.text_palette = TextPalette {
             gray: hsl_of(if dark { 0x9b9b9b } else { 0x787774 }),
             brown: hsl_of(if dark { 0xba856f } else { 0x9f6b53 }),
@@ -530,15 +580,25 @@ pub fn apply_template_palette(cx: &mut App) -> anyhow::Result<()> {
             red: hsl_of(if dark { 0x522e2a } else { 0xfdebec }),
             gray: hsl_of(if dark { 0x2f2f2f } else { 0xf1f1ef }),
         };
-        // Inline code is red text on a warm gray wash. Code blocks,
-        // callouts and table headers sit on its warm off-white (or the
-        // lifted dark gray), never a tinted one.
-        theme.code_background = hsla_of(0x878378, if dark { 0.2 } else { 0.15 });
-        theme.code_foreground = hsl_of(if dark { 0xff7369 } else { 0xeb5757 });
-        theme.code_block_background = hsl_of(if dark { 0x202020 } else { 0xf7f6f3 });
-        theme.callout_background = hsl_of(if dark { 0x252525 } else { 0xf1f1ef });
-        theme.table_header_background = hsl_of(if dark { 0x202020 } else { 0xf7f6f3 });
         theme.quote_bar = kit.foreground.opacity(0.85);
+        if own {
+            // Inline code is red text on a warm gray wash. Code blocks,
+            // callouts and table headers sit on its warm off-white (or the
+            // lifted dark gray), never a tinted one.
+            theme.code_background = hsla_of(0x878378, if dark { 0.2 } else { 0.15 });
+            theme.code_foreground = hsl_of(if dark { 0xff7369 } else { 0xeb5757 });
+            theme.code_block_background = hsl_of(if dark { 0x202020 } else { 0xf7f6f3 });
+            theme.callout_background = hsl_of(if dark { 0x252525 } else { 0xf1f1ef });
+            theme.table_header_background = hsl_of(if dark { 0x202020 } else { 0xf7f6f3 });
+        } else {
+            // Other themes: code and callouts sit on the theme's own muted
+            // surface, so their tint (Nord's blue, Solarized's cream) carries.
+            theme.code_background = kit.muted;
+            theme.code_foreground = kit.foreground;
+            theme.code_block_background = kit.muted;
+            theme.callout_background = kit.muted;
+            theme.table_header_background = kit.muted;
+        }
     });
     Ok(())
 }
