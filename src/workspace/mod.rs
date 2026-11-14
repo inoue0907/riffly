@@ -250,6 +250,11 @@ pub fn init(cx: &mut App) {
 /// `%APPDATA%\Riffly` on Windows, the XDG config directory elsewhere:
 /// where the recent-files list and the settings live.
 pub fn default_config_dir() -> Option<PathBuf> {
+    // A separate folder for trying things out without touching your own
+    // settings and recent files.
+    if let Some(dir) = std::env::var_os("RIFFLY_CONFIG_DIR") {
+        return Some(PathBuf::from(dir));
+    }
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
@@ -1314,6 +1319,7 @@ impl Workspace {
             width: f32::from(bounds.size.width),
             height: f32::from(bounds.size.height),
             maximized,
+            native: crate::placement::read(window),
         });
         self.settings.save(self.config_dir.as_deref());
     }

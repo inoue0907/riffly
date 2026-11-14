@@ -44,6 +44,10 @@ pub struct Placement {
     pub height: f32,
     #[serde(default)]
     pub maximized: bool,
+    /// The same place as Windows keeps it, which comes back right on any
+    /// monitor whatever its scale; preferred over the fields above.
+    #[serde(default)]
+    pub native: Option<crate::placement::NativePlacement>,
 }
 
 /// How much of `a` lies inside `b`, as an area.
@@ -102,7 +106,7 @@ mod tests {
     }
 
     fn place(x: f32, y: f32, width: f32, height: f32) -> Placement {
-        Placement { x, y, width, height, maximized: false }
+        Placement { x, y, width, height, maximized: false, native: None }
     }
 
     /// Three screens like a laptop with two monitors above it.
@@ -154,6 +158,13 @@ mod tests {
                 width: 1000.,
                 height: 700.,
                 maximized: true,
+                native: Some(crate::placement::NativePlacement {
+                    left: -1800,
+                    top: -1300,
+                    right: -600,
+                    bottom: -500,
+                    maximized: true,
+                }),
             }),
             welcomed: true,
         };

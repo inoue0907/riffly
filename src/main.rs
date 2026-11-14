@@ -215,13 +215,20 @@ fn main() {
             eprintln!("the template palette could not be loaded: {error}");
         }
 
-        // Where the window was last time, if that is still on a screen.
+        // Where the window was last time, if that is still on a screen. On
+        // Windows the system's own record of it is put back once the window
+        // exists (it knows each monitor's scale); the window opens hidden
+        // until then so it does not jump.
         let placement = workspace::settings::Settings::load(config_dir.as_deref()).window;
+        let native = placement
+            .and_then(|placement| placement.native)
+            .filter(riffly::placement::is_on_a_monitor);
         let window_bounds = placement
             .and_then(|placement| restore_bounds(placement, cx))
             .unwrap_or_else(|| default_bounds(cx));
         let options = WindowOptions {
             window_bounds: Some(window_bounds),
+            show: native.is_none(),
             ..Default::default()
         };
 
@@ -243,6 +250,12 @@ fn main() {
                     workspace.guard_window_close(window, cx);
                     workspace
                 });
+                // Shown by putting it in place; if that fails, show it anyway.
+                if let Some(native) = native
+                    && !riffly::placement::apply(window, &native)
+                {
+                    window.activate_window();
+                }
                 cx.new(|cx| Root::new(view, window, cx))
             })
             .expect("failed to open window");

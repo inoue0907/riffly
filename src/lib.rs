@@ -3,6 +3,7 @@
 
 pub mod editor;
 pub mod pdf;
+pub mod placement;
 pub mod shell;
 pub mod workspace;
 
