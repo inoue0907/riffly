@@ -98,30 +98,31 @@ fn open_demo_state(editor: &mut RifflyEditor, window: &mut Window, cx: &mut Cont
     }
 }
 
-/// The saved place as window bounds, unless it no longer fits: too small,
-/// or off every screen (a monitor that was unplugged, say).
+/// The saved place as window bounds, fitted onto today's screens.
 fn restore_bounds(placement: workspace::settings::Placement, cx: &App) -> Option<WindowBounds> {
-    if placement.width < 320. || placement.height < 240. {
-        return None;
-    }
-    let bounds = Bounds::new(
-        point(px(placement.x), px(placement.y)),
-        size(px(placement.width), px(placement.height)),
-    );
-    // The title bar has to land on a screen for the window to be reachable.
-    let title_bar = Bounds::new(bounds.origin, size(bounds.size.width, px(40.)));
-    let on_screen = cx
+    let screens: Vec<Bounds<Pixels>> = cx
         .displays()
         .iter()
-        .any(|display| display.bounds().intersects(&title_bar));
-    if !on_screen {
-        return None;
-    }
+        .map(|display| display.visible_bounds())
+        .collect();
+    let bounds = placement.fit(&screens)?;
     Some(if placement.maximized {
         WindowBounds::Maximized(bounds)
     } else {
         WindowBounds::Windowed(bounds)
     })
+}
+
+/// A first window: 1100 × 860, or smaller on a smaller screen, centred.
+fn default_bounds(cx: &App) -> WindowBounds {
+    let (width, height) = cx
+        .primary_display()
+        .map(|display| {
+            let area = display.visible_bounds();
+            (f32::from(area.size.width) * 0.9, f32::from(area.size.height) * 0.9)
+        })
+        .unwrap_or((1100., 860.));
+    WindowBounds::centered(size(px(width.min(1100.)), px(height.min(860.))), cx)
 }
 
 /// `--register` puts Riffly on the right-click menu and the "Open with" and
@@ -199,8 +200,8 @@ fn main() {
         workspace::init(cx);
         riffly::pdf::init(cx);
 
-        // Files named on the command line open in tabs; with none, the demo
-        // document does.
+        // Files named on the command line open in tabs; with none, the
+        // welcome document does the first time and an empty page after.
         let files: Vec<std::path::PathBuf> = std::env::args_os()
             .skip(1)
             .map(std::path::PathBuf::from)
@@ -218,7 +219,7 @@ fn main() {
         let placement = workspace::settings::Settings::load(config_dir.as_deref()).window;
         let window_bounds = placement
             .and_then(|placement| restore_bounds(placement, cx))
-            .unwrap_or_else(|| WindowBounds::centered(size(px(1100.), px(860.)), cx));
+            .unwrap_or_else(|| default_bounds(cx));
         let options = WindowOptions {
             window_bounds: Some(window_bounds),
             ..Default::default()
@@ -228,9 +229,12 @@ fn main() {
             cx.open_window(options, |window, cx| {
                 let view = cx.new(|cx| {
                     let mut workspace = Workspace::new(config_dir.clone(), cx);
-                    if files.is_empty() {
+                    let first_run = workspace.take_first_run();
+                    if files.is_empty() && (first_run || std::env::var("RIFFLY_DEMO").is_ok()) {
                         let editor = workspace.add_tab(demo_document(), None, window, cx);
                         editor.update(cx, |editor, cx| open_demo_state(editor, window, cx));
+                    } else if files.is_empty() {
+                        workspace.new_tab(window, cx);
                     } else {
                         for file in files {
                             workspace.open_path(file, window, cx);

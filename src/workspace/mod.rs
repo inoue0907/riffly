@@ -428,6 +428,11 @@ pub struct Workspace {
     closing: bool,
     /// Every question was answered; the window may go.
     close_confirmed: bool,
+    /// Keeps the window-bounds observer alive.
+    window_subscriptions: Vec<Subscription>,
+    /// A pending save of the window's place, replaced (so cancelled) by
+    /// every further move or resize until the window settles.
+    remember_task: Option<gpui_kit::Task<()>>,
     /// The sidebar's own focus, for moving through it by keyboard.
     sidebar_focus: FocusHandle,
     /// The highlighted sidebar row: outline entries first, then recent files.
@@ -459,6 +464,8 @@ impl Workspace {
             focus_handle: cx.focus_handle(),
             closing: false,
             close_confirmed: false,
+            window_subscriptions: Vec::new(),
+            remember_task: None,
             sidebar_focus: cx.focus_handle(),
             sidebar_cursor: None,
             show_shortcuts: false,
@@ -1252,9 +1259,32 @@ impl Workspace {
 
     // --------------------------------------------------------- window close
 
-    /// Ask about unsaved tabs before the window closes. Call once, after the
-    /// workspace is in its window.
-    pub fn guard_window_close(&self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Whether this is Riffly's first start, which shows the welcome
+    /// document; from now on it is not.
+    pub fn take_first_run(&mut self) -> bool {
+        if self.settings.welcomed {
+            return false;
+        }
+        self.settings.welcomed = true;
+        self.settings.save(self.config_dir.as_deref());
+        true
+    }
+
+    /// Ask about unsaved tabs before the window closes, and keep the
+    /// window's place as it moves. Call once, after the workspace is in its
+    /// window.
+    pub fn guard_window_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Save the place shortly after the window stops moving, not only on
+        // close: a window that is killed, or closed some other way, still
+        // opens where it was.
+        self.window_subscriptions.push(cx.observe_window_bounds(window, |this, window, cx| {
+            this.remember_task = Some(cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(400))
+                    .await;
+                let _ = this.update_in(cx, |this, window, _| this.remember_window(window));
+            }));
+        }));
         // Weak, and taken without upgrading: this may run while the
         // workspace is still being built.
         let this = cx.weak_entity();

@@ -500,3 +500,37 @@ fn closing_remembers_where_the_window_was(cx: &mut TestAppContext) {
     assert_eq!(saved.x, f32::from(bounds.origin.x));
     assert_eq!(saved.y, f32::from(bounds.origin.y));
 }
+
+#[gpui_kit::test]
+fn resizing_the_window_saves_its_place_without_closing(cx: &mut TestAppContext) {
+    let h = setup(cx, "resize");
+    h.ui(cx, |workspace, window, cx| {
+        workspace.update(cx, |workspace, cx| workspace.guard_window_close(window, cx))
+    });
+    let config = h.dir.join("config");
+    assert!(workspace::settings::Settings::load(Some(&config)).window.is_none());
+
+    let visual = gpui_kit::VisualTestContext::from_window(h.window, cx);
+    visual.simulate_resize(size(px(1234.), px(777.)));
+    // Saved once the window has settled, not on every step of a drag.
+    cx.executor().advance_clock(std::time::Duration::from_millis(100));
+    cx.run_until_parked();
+    assert!(workspace::settings::Settings::load(Some(&config)).window.is_none());
+    cx.executor().advance_clock(std::time::Duration::from_millis(500));
+    cx.run_until_parked();
+
+    let saved = workspace::settings::Settings::load(Some(&config))
+        .window
+        .expect("the place is saved");
+    assert_eq!((saved.width, saved.height), (1234., 777.));
+}
+
+#[gpui_kit::test]
+fn the_welcome_document_is_for_the_first_start_only(cx: &mut TestAppContext) {
+    let h = setup(cx, "welcome");
+    let first = h.ui(cx, |workspace, _, cx| workspace.update(cx, |w, _| w.take_first_run()));
+    let second = h.ui(cx, |workspace, _, cx| workspace.update(cx, |w, _| w.take_first_run()));
+    assert!(first, "a fresh install welcomes");
+    assert!(!second, "and only once");
+    assert!(workspace::settings::Settings::load(Some(&h.dir.join("config"))).welcomed);
+}
