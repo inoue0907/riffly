@@ -8,6 +8,9 @@ A block editor for quickly reading, reviewing and fixing markdown — the kind o
 AI just wrote. Open it, riffle through it, fix what needs fixing, save. Written in Rust on
 [GPUI](https://www.gpui.rs) through [`gpui-kit`](https://github.com/longbridge/gpui-kit).
 
+**Download** the Windows app from [Releases](https://github.com/inoue0907/riffly/releases/latest)
+— unzip and run `Riffly.exe`, nothing to install. Or build it yourself:
+
 ```bash
 cargo run                  # the demo document
 cargo run -- notes.md a.md # open files in tabs

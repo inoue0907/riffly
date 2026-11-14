@@ -1,3 +1,7 @@
+// A release build is a windowed app: no console window opens beside it.
+// Debug builds keep the console, where `eprintln!` diagnostics go.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use gpui_kit::assets::AllAssets;
 use gpui_kit::component::Root;
 use gpui_kit::*;
