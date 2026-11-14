@@ -256,6 +256,96 @@ impl RifflyEditor {
         cx.notify();
     }
 
+    /// The thread in view: the open one, else the one under the caret.
+    fn current_thread(&self, cx: &App) -> Option<ThreadId> {
+        self.open_thread.or_else(|| self.thread_at_caret(cx))
+    }
+
+    /// `Mod+Alt+M`: open the thread under the caret, or start one on the
+    /// selection when there is none.
+    pub fn comment_at_caret(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.thread_at_caret(cx) {
+            Some(thread) if self.open_thread != Some(thread) => {
+                self.open_comment_thread(thread, window, cx)
+            }
+            Some(_) => {}
+            None => self.add_comment(window, cx),
+        }
+    }
+
+    /// Where a thread's highlight is: its block's position and the range.
+    fn thread_span(&self, thread: ThreadId) -> Option<(usize, std::ops::Range<usize>)> {
+        let kind = MarkKind::Comment(thread);
+        self.blocks.iter().enumerate().find_map(|(ix, block)| {
+            block
+                .marks
+                .iter()
+                .find(|mark| mark.kind == kind)
+                .map(|mark| (ix, mark.range.clone()))
+        })
+    }
+
+    /// `Mod+Alt+N` / `Mod+Alt+P`: select the next (or previous) commented
+    /// text from the caret and open its thread, wrapping at the ends.
+    pub fn jump_to_comment(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let ids: Vec<ThreadId> = self.open_comment_threads().map(|thread| thread.id()).collect();
+        let mut spans: Vec<(usize, usize, ThreadId, std::ops::Range<usize>)> = ids
+            .into_iter()
+            .filter_map(|id| {
+                let (ix, range) = self.thread_span(id)?;
+                Some((ix, range.start, id, range))
+            })
+            .collect();
+        if spans.is_empty() {
+            return;
+        }
+        spans.sort_by_key(|(ix, start, _, _)| (*ix, *start));
+
+        let here = match self.active_index() {
+            Some(ix) => {
+                let selected = self.blocks[ix].state.read(cx).selected_range();
+                (ix, if forward { selected.end } else { selected.start })
+            }
+            None => (0, 0),
+        };
+        let current = self.open_thread;
+        let next = if forward {
+            spans
+                .iter()
+                .find(|(ix, start, id, _)| (*ix, *start) >= here && Some(*id) != current)
+                .or_else(|| spans.first())
+        } else {
+            spans
+                .iter()
+                .rev()
+                .find(|(ix, start, id, _)| (*ix, *start) < here && Some(*id) != current)
+                .or_else(|| spans.last())
+        };
+        let Some((ix, _, id, range)) = next.cloned() else { return };
+
+        if self.comment_draft.is_some() {
+            self.close_comment_popover(window, cx);
+        }
+        self.select_text_in_block(ix, range, window, cx);
+        self.open_comment_thread(id, window, cx);
+    }
+
+    /// `Mod+Alt+R`: resolve the thread in view.
+    pub fn resolve_current_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(thread) = self.current_thread(cx) {
+            self.resolve_comment_thread(thread, window, cx);
+        }
+    }
+
+    /// `Mod+Alt+Shift+M`: delete the thread in view, discussion and all.
+    pub fn delete_current_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(thread) = self.current_thread(cx) else { return };
+        self.remove_comment_thread(thread, cx);
+        if let Some(id) = self.focused_id() {
+            self.focus_block(id, super::view::Caret::End, window, cx);
+        }
+    }
+
     /// Resolve a thread: the highlight comes off and the discussion is kept.
     pub fn resolve_comment_thread(
         &mut self,

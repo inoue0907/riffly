@@ -59,6 +59,11 @@ actions!(
         MoveBlockDown,
         SelectBlock,
         CopyBlock,
+        CommentAtCaret,
+        NextComment,
+        PreviousComment,
+        ResolveComment,
+        DeleteComment,
     ]
 );
 
@@ -95,6 +100,22 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-shift-backspace", DeleteBlock, Some(CONTEXT)),
         KeyBinding::new("secondary-shift-up", MoveBlockUp, Some(CONTEXT)),
         KeyBinding::new("secondary-shift-down", MoveBlockDown, Some(CONTEXT)),
+        KeyBinding::new("secondary-shift-c", CopyBlock, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-h", SetHorizontalRule, Some(CONTEXT)),
+        // Comments: open the one under the caret (or start one on the
+        // selection), walk them, resolve or delete the one in view.
+        KeyBinding::new("secondary-alt-m", CommentAtCaret, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-n", NextComment, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-p", PreviousComment, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-r", ResolveComment, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-shift-m", DeleteComment, Some(CONTEXT)),
+        // Tables, from inside a cell.
+        KeyBinding::new("secondary-alt-enter", InsertRowBelow, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-shift-enter", InsertRowAbove, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-]", InsertColumnRight, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-[", InsertColumnLeft, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-backspace", DeleteRow, Some(CONTEXT)),
+        KeyBinding::new("secondary-alt-shift-backspace", DeleteColumn, Some(CONTEXT)),
         // With whole blocks selected the caret is out of the inputs, so the
         // editing keys are bound here as well as in the `Input` context.
         KeyBinding::new("escape", input::Escape, Some(CONTEXT)),

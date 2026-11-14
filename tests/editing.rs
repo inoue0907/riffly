@@ -2056,3 +2056,100 @@ fn the_document_settles_and_stops_moving(cx: &mut TestAppContext) {
         "the block never stopped moving: {settled:#?}"
     );
 }
+
+#[gpui_kit::test]
+fn comments_are_walked_resolved_and_deleted_from_the_keyboard(cx: &mut TestAppContext) {
+    let harness = setup(cx);
+    harness.type_text("first", cx);
+    harness.press("enter", cx);
+    harness.type_text("second", cx);
+    for (ix, len, body) in [(0usize, 5usize, "one"), (1, 6, "two")] {
+        harness.ui(cx, |window, cx| {
+            harness
+                .editor
+                .update(cx, |editor, cx| editor.select_text_in_block(ix, 0..len, window, cx))
+        });
+        harness.press("secondary-shift-m", cx);
+        harness.type_text(body, cx);
+        harness.press("enter", cx);
+        harness.press("escape", cx);
+    }
+    let ids: Vec<_> = cx.update(|cx| {
+        harness.editor.read(cx).comment_threads().iter().map(|t| t.id()).collect()
+    });
+    assert_eq!(ids.len(), 2);
+    let open = |cx: &mut TestAppContext| cx.update(|cx| harness.editor.read(cx).open_thread());
+
+    harness.ui(cx, |window, cx| {
+        harness
+            .editor
+            .update(cx, |editor, cx| editor.select_text_in_block(0, 0..0, window, cx))
+    });
+    harness.press("secondary-alt-n", cx);
+    assert_eq!(open(cx), Some(ids[0]));
+    harness.press("secondary-alt-n", cx);
+    assert_eq!(open(cx), Some(ids[1]));
+    harness.press("secondary-alt-n", cx);
+    assert_eq!(open(cx), Some(ids[0]), "next wraps to the first comment");
+    harness.press("secondary-alt-p", cx);
+    assert_eq!(open(cx), Some(ids[1]), "previous wraps to the last comment");
+
+    harness.press("secondary-alt-r", cx);
+    cx.update(|cx| {
+        let editor = harness.editor.read(cx);
+        assert!(editor.comment_thread(ids[1]).unwrap().is_resolved());
+        assert!(editor.open_thread().is_none());
+    });
+
+    // Ctrl+Alt+M opens the thread under the caret; Ctrl+Alt+Shift+M deletes it.
+    harness.ui(cx, |window, cx| {
+        harness
+            .editor
+            .update(cx, |editor, cx| editor.select_text_in_block(0, 2..2, window, cx))
+    });
+    harness.press("secondary-alt-m", cx);
+    assert_eq!(open(cx), Some(ids[0]));
+    harness.press("secondary-alt-shift-m", cx);
+    cx.update(|cx| {
+        let editor = harness.editor.read(cx);
+        assert!(editor.comment_thread(ids[0]).is_none());
+        assert!(editor.content()[0].marks.is_empty());
+    });
+}
+
+#[gpui_kit::test]
+fn ctrl_enter_ticks_a_to_do(cx: &mut TestAppContext) {
+    let harness = setup(cx);
+    harness.type_text("[] ship it", cx);
+    assert_eq!(harness.types(cx), vec!["taskList"]);
+    let checked = |cx: &mut TestAppContext| {
+        cx.update(|cx| harness.editor.read(cx).content()[0].attrs.checked)
+    };
+    harness.press("secondary-enter", cx);
+    assert!(checked(cx));
+    harness.press("secondary-enter", cx);
+    assert!(!checked(cx));
+    assert_eq!(harness.texts(cx), vec!["ship it"], "the text is left alone");
+}
+
+#[gpui_kit::test]
+fn table_rows_and_columns_are_added_from_the_keyboard(cx: &mut TestAppContext) {
+    let harness = setup(cx);
+    harness.type_text("/table", cx);
+    harness.press("enter", cx);
+    let shape = |cx: &mut TestAppContext| {
+        cx.update(|cx| {
+            let editor = harness.editor.read(cx);
+            let id = editor.block_id_at(0).unwrap();
+            let grid = editor.grid(id).unwrap();
+            (grid.rows(), grid.columns())
+        })
+    };
+    let (rows, columns) = shape(cx);
+    harness.press("secondary-alt-enter", cx);
+    assert_eq!(shape(cx), (rows + 1, columns));
+    harness.press("secondary-alt-]", cx);
+    assert_eq!(shape(cx), (rows + 1, columns + 1));
+    harness.press("secondary-alt-backspace", cx);
+    assert_eq!(shape(cx), (rows, columns + 1));
+}

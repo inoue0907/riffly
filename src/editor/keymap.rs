@@ -206,6 +206,21 @@ impl RifflyEditor {
             .on_action(cx.listener(|this, _: &actions::DeleteColumn, window, cx| {
                 this.delete_column_at_caret(window, cx)
             }))
+            .on_action(cx.listener(|this, _: &actions::CommentAtCaret, window, cx| {
+                this.comment_at_caret(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &actions::NextComment, window, cx| {
+                this.jump_to_comment(true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &actions::PreviousComment, window, cx| {
+                this.jump_to_comment(false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &actions::ResolveComment, window, cx| {
+                this.resolve_current_comment(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &actions::DeleteComment, window, cx| {
+                this.delete_current_comment(window, cx)
+            }))
             .on_action(cx.listener(|this, _: &actions::AddComment, window, cx| {
                 this.add_comment(window, cx)
             }))
@@ -259,6 +274,24 @@ impl RifflyEditor {
         // Shift-Enter is a soft break: let the input insert the newline.
         if action.shift {
             return;
+        }
+
+        // Mod-Enter ticks a to-do, or opens or closes a toggle.
+        if action.secondary {
+            let id = self.blocks[ix].id;
+            match self.blocks[ix].ty.as_ref() {
+                types::TASK_LIST => {
+                    self.toggle_check(id, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                types::TOGGLE => {
+                    self.toggle_collapsed(id, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                _ => {}
+            }
         }
 
         if self.spec_at(ix, cx).caps().multiline {
