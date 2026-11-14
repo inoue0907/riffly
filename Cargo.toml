@@ -27,7 +27,8 @@ unicode-segmentation = "1"
 regex = "1.13.1"
 scraper = "0.29.0"
 
-# The system PDF engine, for the PDF viewer.
+# The system PDF engine for the PDF viewer, and the registry for
+# registering Riffly with Explorer.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Data_Pdf",
@@ -35,7 +36,10 @@ windows = { version = "0.62", features = [
     "Storage",
     "Storage_Streams",
     "UI",
+    "Win32_Globalization",
     "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
 ] }
 
 [dev-dependencies]

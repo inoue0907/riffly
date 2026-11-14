@@ -9,7 +9,21 @@ AI just wrote. Open it, riffle through it, fix what needs fixing, save. Written 
 [GPUI](https://www.gpui.rs) through [`gpui-kit`](https://github.com/longbridge/gpui-kit).
 
 **Download** the Windows app from [Releases](https://github.com/inoue0907/riffly/releases/latest)
-— unzip and run `Riffly.exe`, nothing to install. Or build it yourself:
+— unzip and run `Riffly.exe`, nothing to install. To open files from Explorer, run it
+once with `--register` from where you keep it:
+
+```bash
+Riffly.exe --register --open-settings
+```
+
+That adds **Open in Riffly** to the right-click menu of `.md`, `.html` and `.pdf` files,
+lists Riffly under "Open with", gives those files a page icon with Riffly's badge, and
+offers Riffly in Settings › Default apps, which `--open-settings` opens so you can pick
+it (Windows leaves that choice to you). It touches only your own user's settings; run
+it again after moving the exe, and `Riffly.exe --unregister` removes it all. On
+Windows 11 the right-click entry is under "Show more options".
+
+Or build it yourself:
 
 ```bash
 cargo run                  # the demo document
@@ -40,6 +54,8 @@ sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
 - **Sidebar**: the active document's outline (click a heading to jump to it) and the
   files opened lately. Both work from the keyboard too.
 - **Light and dark**: follows the system until you pick one, then remembers it.
+- **Picks up where you left off**: the window opens where it was, at the size it was
+  (maximized or not), unless that screen is gone.
 - **Every action has a shortcut**: press `F1` for the full list.
 - **Blocks**: paragraph, heading 1–3, bullet / numbered / to-do lists (nested), blockquote,
   code block with syntax highlighting and a language menu, separator, image (click or drop

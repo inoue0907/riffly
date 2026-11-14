@@ -1262,12 +1262,30 @@ impl Workspace {
             let Some(this) = this.upgrade() else { return true };
             this.update(cx, |this, cx| {
                 if this.close_confirmed || !this.has_unsaved_changes() {
+                    this.remember_window(window);
                     return true;
                 }
                 this.confirm_close(window, cx);
                 false
             })
         });
+    }
+
+    /// Keep where the window is, so the next start opens it there.
+    pub fn remember_window(&mut self, window: &Window) {
+        let (bounds, maximized) = match window.window_bounds() {
+            gpui_kit::WindowBounds::Windowed(bounds) => (bounds, false),
+            gpui_kit::WindowBounds::Maximized(bounds)
+            | gpui_kit::WindowBounds::Fullscreen(bounds) => (bounds, true),
+        };
+        self.settings.window = Some(settings::Placement {
+            x: f32::from(bounds.origin.x),
+            y: f32::from(bounds.origin.y),
+            width: f32::from(bounds.size.width),
+            height: f32::from(bounds.size.height),
+            maximized,
+        });
+        self.settings.save(self.config_dir.as_deref());
     }
 
     fn confirm_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1307,6 +1325,7 @@ impl Workspace {
         if dirty.is_empty() {
             if quit {
                 self.close_confirmed = true;
+                self.remember_window(window);
                 window.remove_window();
                 cx.quit();
             }
@@ -1388,6 +1407,7 @@ impl Workspace {
                 this.closing = false;
                 if proceed && quit {
                     this.close_confirmed = true;
+                    this.remember_window(window);
                     window.remove_window();
                     cx.quit();
                 }

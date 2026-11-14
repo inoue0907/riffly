@@ -71,6 +71,9 @@ pub struct RifflyEditor {
     pub(crate) link_editor: Option<super::toolbar::LinkEditor>,
     /// Undo and redo for the document as a whole.
     pub(crate) history: super::history::History,
+    /// How long each block's shown text was when its rows were last counted,
+    /// so an input that redraws with more or less text gets counted again.
+    pub(crate) measured_lengths: HashMap<BlockId, usize>,
     /// The page's scroll position, so a host can bring a block into view.
     pub(crate) page_scroll: gpui_kit::ScrollHandle,
 }
@@ -107,6 +110,7 @@ impl RifflyEditor {
             drop_target: None,
             link_editor: None,
             history: super::history::History::default(),
+            measured_lengths: HashMap::new(),
             page_scroll: gpui_kit::ScrollHandle::new(),
             theme: Vec::new(),
         };
@@ -367,6 +371,17 @@ impl RifflyEditor {
     }
 
     /// Focus handle of the block at `ix`, for tests and hosts.
+    /// Rows a block's shown text wraps into, as its height is worked out.
+    pub fn block_rows(&self, ix: usize) -> usize {
+        self.blocks.get(ix).map(|block| block.rows).unwrap_or(0)
+    }
+
+    /// The input a block's text lives in, for hosts and tests that need to
+    /// drive it the way the platform does (an IME composing, say).
+    pub fn block_input(&self, ix: usize) -> Option<Entity<EditorState>> {
+        self.blocks.get(ix).map(|block| block.state.clone())
+    }
+
     pub fn block_focus_handle(&self, ix: usize, cx: &App) -> Option<FocusHandle> {
         use gpui_kit::Focusable as _;
         Some(self.blocks.get(ix)?.state.focus_handle(cx))
@@ -434,19 +449,33 @@ impl RifflyEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<gpui_kit::Subscription> {
-        vec![cx.subscribe_in(
-            state,
-            window,
-            move |this, _state, event: &InputEvent, window, cx| match event {
-                InputEvent::Change => this.on_block_changed(id, window, cx),
-                InputEvent::Focus => {
-                    this.focused = Some(id);
-                    this.selected.clear();
+        vec![
+            cx.subscribe_in(
+                state,
+                window,
+                move |this, _state, event: &InputEvent, window, cx| match event {
+                    InputEvent::Change => this.on_block_changed(id, window, cx),
+                    InputEvent::Focus => {
+                        this.focused = Some(id);
+                        this.selected.clear();
+                        cx.notify();
+                    }
+                    _ => {}
+                },
+            ),
+            // While an IME composes, the input shows text it has not reported
+            // as a change yet (the change comes when the text is committed).
+            // The block is sized from what the input shows, so when that
+            // grows or shrinks, size it again — otherwise long Japanese text
+            // being typed outgrows its box and the box scrolls.
+            cx.observe(state, move |this, state, cx| {
+                let shown = state.read(cx).value().len();
+                if this.measured_lengths.get(&id) != Some(&shown) {
+                    this.remeasure(id, cx);
                     cx.notify();
                 }
-                _ => {}
-            },
-        )]
+            }),
+        ]
     }
 
     /// Insert a block at `ix` and return its id.
@@ -797,6 +826,8 @@ impl RifflyEditor {
         let layout = self.layout_at(ix, cx);
         let rows = self.measure_rows(ix, &layout, cx);
         self.blocks[ix].rows = rows;
+        let shown = self.blocks[ix].state.read(cx).value().len();
+        self.measured_lengths.insert(id, shown);
     }
 
     fn measure_rows(&self, ix: usize, layout: &BlockLayout, cx: &App) -> usize {
@@ -824,8 +855,10 @@ impl RifflyEditor {
 
         let font = self.block_font(layout, cx);
         let mut wrapper = cx.text_system().line_wrapper(font, layout.text_size);
-        block
-            .text
+        // The text the input shows, which while an IME composes includes the
+        // text being composed, not yet in `block.text`.
+        let shown = block.state.read(cx).value();
+        shown
             .split('\n')
             .map(|line| {
                 if line.is_empty() {
@@ -846,7 +879,7 @@ impl RifflyEditor {
         let estimate = line_height * self.blocks[ix].rows.max(1) as f32;
 
         let measured = state
-            .range_to_bounds(&(0..self.blocks[ix].text.len()))
+            .range_to_bounds(&(0..state.value().len()))
             .map(|bounds| bounds.size.height)
             .unwrap_or(estimate);
         estimate.max(measured)

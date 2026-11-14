@@ -98,7 +98,62 @@ fn open_demo_state(editor: &mut RifflyEditor, window: &mut Window, cx: &mut Cont
     }
 }
 
+/// The saved place as window bounds, unless it no longer fits: too small,
+/// or off every screen (a monitor that was unplugged, say).
+fn restore_bounds(placement: workspace::settings::Placement, cx: &App) -> Option<WindowBounds> {
+    if placement.width < 320. || placement.height < 240. {
+        return None;
+    }
+    let bounds = Bounds::new(
+        point(px(placement.x), px(placement.y)),
+        size(px(placement.width), px(placement.height)),
+    );
+    // The title bar has to land on a screen for the window to be reachable.
+    let title_bar = Bounds::new(bounds.origin, size(bounds.size.width, px(40.)));
+    let on_screen = cx
+        .displays()
+        .iter()
+        .any(|display| display.bounds().intersects(&title_bar));
+    if !on_screen {
+        return None;
+    }
+    Some(if placement.maximized {
+        WindowBounds::Maximized(bounds)
+    } else {
+        WindowBounds::Windowed(bounds)
+    })
+}
+
+/// `--register` puts Riffly on the right-click menu and the "Open with" and
+/// Default apps lists for Markdown, HTML and PDF files (this user only);
+/// `--unregister` takes it all back out. Both exit without opening a window.
+fn shell_command() -> Option<i32> {
+    let flag = std::env::args().nth(1)?;
+    let result = match flag.as_str() {
+        "--register" => std::env::current_exe()
+            .map_err(anyhow::Error::from)
+            .and_then(|exe| riffly::shell::register(&exe))
+            .map(|()| {
+                if std::env::args().any(|arg| arg == "--open-settings") {
+                    riffly::shell::open_default_apps_settings();
+                }
+            }),
+        "--unregister" => riffly::shell::unregister(),
+        _ => return None,
+    };
+    Some(match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("riffly {flag}: {error:#}");
+            1
+        }
+    })
+}
+
 fn main() {
+    if let Some(code) = shell_command() {
+        std::process::exit(code);
+    }
     let app = gpui_kit::application().with_assets(AllAssets);
 
     app.run(move |cx| {
@@ -159,8 +214,13 @@ fn main() {
             eprintln!("the template palette could not be loaded: {error}");
         }
 
+        // Where the window was last time, if that is still on a screen.
+        let placement = workspace::settings::Settings::load(config_dir.as_deref()).window;
+        let window_bounds = placement
+            .and_then(|placement| restore_bounds(placement, cx))
+            .unwrap_or_else(|| WindowBounds::centered(size(px(1100.), px(860.)), cx));
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(1100.), px(860.)), cx)),
+            window_bounds: Some(window_bounds),
             ..Default::default()
         };
 

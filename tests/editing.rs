@@ -2153,3 +2153,55 @@ fn table_rows_and_columns_are_added_from_the_keyboard(cx: &mut TestAppContext) {
     harness.press("secondary-alt-backspace", cx);
     assert_eq!(shape(cx), (rows, columns + 1));
 }
+
+/// An IME shows the text being composed in the input before it reports a
+/// change. Long Japanese text being typed has to grow its block as it goes,
+/// or the block's input scrolls inside itself and shows a scroll bar.
+#[gpui_kit::test]
+fn text_being_composed_grows_its_block(cx: &mut TestAppContext) {
+    use gpui_kit::EntityInputHandler as _;
+    let harness = setup(cx);
+    let composing = "これは日本語の長い段落で、自動的に折り返されるかどうかを確かめるための文章です。".repeat(6);
+
+    let (id, input) = cx.update(|cx| {
+        let editor = harness.editor.read(cx);
+        (editor.block_id_at(0).unwrap(), editor.block_input(0).unwrap())
+    });
+    let height_before = cx.update(|cx| harness.editor.read(cx).block_bounds(id).unwrap().size.height);
+
+    harness.ui(cx, |window, cx| {
+        input.update(cx, |input, cx| {
+            input.replace_and_mark_text_in_range(None, &composing, None, window, cx)
+        });
+    });
+    for _ in 0..4 {
+        harness.ui(cx, |window, cx| window.render_frame(cx));
+    }
+
+    cx.update(|cx| {
+        let editor = harness.editor.read(cx);
+        assert_eq!(editor.content()[0].text, "", "nothing is committed yet");
+        // The block is sized for the composed text: the real app cannot fall
+        // back on measuring rows the input has scrolled out of view.
+        assert!(editor.block_rows(0) > 2, "rows counted: {}", editor.block_rows(0));
+        let height = editor.block_bounds(id).unwrap().size.height;
+        assert!(height > height_before * 2., "the block grew: {height_before:?} → {height:?}");
+        assert!(editor.text_area_fits_text(id, cx), "the composed text fits its block");
+        assert_eq!(
+            editor.block_scroll_offset(id, cx).unwrap().y,
+            gpui_kit::px(0.),
+            "the input does not scroll"
+        );
+    });
+
+    // Cancelling the composition gives the room back.
+    harness.ui(cx, |window, cx| {
+        input.update(cx, |input, cx| input.replace_and_mark_text_in_range(None, "", None, window, cx));
+    });
+    for _ in 0..4 {
+        harness.ui(cx, |window, cx| window.render_frame(cx));
+    }
+    let height_after = cx.update(|cx| harness.editor.read(cx).block_bounds(id).unwrap().size.height);
+    assert_eq!(height_after, height_before);
+    cx.update(|cx| assert_eq!(harness.editor.read(cx).block_rows(0), 1));
+}

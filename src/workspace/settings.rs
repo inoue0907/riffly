@@ -19,6 +19,21 @@ pub struct Settings {
     /// The palette the reader picked; `None` follows the system.
     #[serde(default)]
     pub appearance: Option<Appearance>,
+    /// Where the window was when it was last closed.
+    #[serde(default)]
+    pub window: Option<Placement>,
+}
+
+/// A window's place on screen, in logical pixels. For a maximized window it
+/// is the size it goes back to when restored.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Placement {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub maximized: bool,
 }
 
 impl Settings {
@@ -50,6 +65,13 @@ mod tests {
 
         let settings = Settings {
             appearance: Some(Appearance::Dark),
+            window: Some(Placement {
+                x: 120.,
+                y: 80.,
+                width: 1000.,
+                height: 700.,
+                maximized: true,
+            }),
         };
         settings.save(Some(&dir));
         assert_eq!(Settings::load(Some(&dir)), settings);

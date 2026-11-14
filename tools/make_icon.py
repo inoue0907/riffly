@@ -6,7 +6,7 @@ rounded monochrome tile. Writes a multi-size .ico and a 512px .png.
 pages on an off-white tile."""
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 OUT = Path(sys.argv[1])
 OUT.mkdir(parents=True, exist_ok=True)
@@ -105,3 +105,65 @@ for size in [256, 128, 64, 48, 32, 24, 16]:
 frames[0].save(OUT / "riffly.ico", format="ICO",
                sizes=[f.size for f in frames], append_images=frames[1:])
 print("wrote", sorted(p.name for p in OUT.iterdir()))
+
+
+# ---------------------------------------------------------------- file icons
+# What Explorer shows for files Riffly opens: a page with its kind written on
+# it and a small Riffly badge in the corner, the way editors mark their files.
+
+def font(size):
+    for name in ["segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"]:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def draw_doc(label, detailed):
+    img = Image.new("RGBA", (N, N), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # The page: white, with a hairline edge and a folded top-right corner.
+    left, top, right, bottom = s(170), s(60), s(830), s(964)
+    fold = s(190)
+    outline = (*P_DOC["edge"], 255)
+    page = [(left, top), (right - fold, top), (right, top + fold), (right, bottom), (left, bottom)]
+    d.polygon(page, fill=(255, 255, 255, 255), outline=outline, width=s(14))
+    d.polygon([(right - fold, top), (right - fold, top + fold), (right, top + fold)],
+              fill=(*P_DOC["fold"], 255), outline=outline, width=s(14))
+    if detailed:
+        # A few lines of text…
+        y = s(250)
+        for frac in [0.78, 0.92, 0.6]:
+            d.rounded_rectangle([left + s(80), y, left + s(80) + int((right - left - s(160)) * frac), y + s(34)],
+                                radius=s(17), fill=(*P_DOC["line"], 255))
+            y += s(80)
+    if label:
+        # …and the kind of file, in a band across the page.
+        size = {2: 220, 3: 190, 4: 150}.get(len(label), 140)
+        f = font(s(size if detailed else size + 30))
+        box = d.textbbox((0, 0), label, font=f)
+        w, h = box[2] - box[0], box[3] - box[1]
+        cx = (left + right) // 2
+        cy = s(505) if detailed else s(400)
+        d.text((cx - w // 2 - box[0], cy - h // 2 - box[1]), label, font=f, fill=(*P_DOC["label"], 255))
+    # The badge: the app icon, small, over the bottom-right corner.
+    badge_size = s(420) if detailed else s(520)
+    badge = draw(False).resize((badge_size, badge_size), Image.LANCZOS)
+    img.alpha_composite(badge, (N - badge_size, N - badge_size))
+    return img.resize((1024, 1024), Image.LANCZOS)
+
+
+P_DOC = {"edge": (190, 189, 185), "fold": (232, 231, 227), "line": (214, 213, 209), "label": (55, 53, 47)}
+
+for name, label in [("riffly-doc", ""), ("riffly-md", "MD"), ("riffly-html", "HTML"), ("riffly-pdf", "PDF")]:
+    big_doc = draw_doc(label, True)
+    small_doc = draw_doc(label, False)
+    big_doc.resize((256, 256), Image.LANCZOS).save(OUT / f"{name}.png")
+    doc_frames = []
+    for size in [256, 128, 64, 48, 32, 24, 16]:
+        src = big_doc if size >= 48 else small_doc
+        doc_frames.append(src.resize((size, size), Image.LANCZOS))
+    doc_frames[0].save(OUT / f"{name}.ico", format="ICO",
+                       sizes=[f.size for f in doc_frames], append_images=doc_frames[1:])
+print("wrote file icons")

@@ -480,3 +480,23 @@ fn a_pdf_opens_in_a_viewer_and_keeps_its_comments_beside_it(cx: &mut TestAppCont
     let pdf = cx.update(|cx| h.workspace.read(cx).active_pdf()).unwrap();
     cx.update(|cx| assert_eq!(pdf.read(cx).comments().len(), 1));
 }
+
+#[gpui_kit::test]
+fn closing_remembers_where_the_window_was(cx: &mut TestAppContext) {
+    let h = setup(cx, "placement");
+    let expected = h.ui(cx, |workspace, window, cx| {
+        workspace.update(cx, |workspace, _| workspace.remember_window(window));
+        window.window_bounds()
+    });
+    let saved = workspace::settings::Settings::load(Some(&h.dir.join("config")))
+        .window
+        .expect("the placement is saved");
+    let bounds = match expected {
+        gpui_kit::WindowBounds::Windowed(bounds) => bounds,
+        gpui_kit::WindowBounds::Maximized(bounds) | gpui_kit::WindowBounds::Fullscreen(bounds) => bounds,
+    };
+    assert_eq!(saved.width, f32::from(bounds.size.width));
+    assert_eq!(saved.height, f32::from(bounds.size.height));
+    assert_eq!(saved.x, f32::from(bounds.origin.x));
+    assert_eq!(saved.y, f32::from(bounds.origin.y));
+}
