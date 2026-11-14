@@ -220,6 +220,13 @@ fn main() {
         // exists (it knows each monitor's scale); the window opens hidden
         // until then so it does not jump.
         let placement = workspace::settings::Settings::load(config_dir.as_deref()).window;
+        riffly::log::write(format!(
+            "start {} from {:?}; settings {:?}; saved place {:?}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::current_exe().ok(),
+            config_dir,
+            placement.and_then(|p| p.native)
+        ));
         let native = placement
             .and_then(|placement| placement.native)
             .filter(riffly::placement::is_on_a_monitor);
@@ -251,10 +258,12 @@ fn main() {
                     workspace
                 });
                 // Shown by putting it in place; if that fails, show it anyway.
-                if let Some(native) = native
-                    && !riffly::placement::apply(window, &native)
-                {
-                    window.activate_window();
+                if let Some(native) = native {
+                    let applied = riffly::placement::apply(window, &native);
+                    riffly::log::write(format!("restored place {native:?}: {applied}"));
+                    if !applied {
+                        window.activate_window();
+                    }
                 }
                 cx.new(|cx| Root::new(view, window, cx))
             })

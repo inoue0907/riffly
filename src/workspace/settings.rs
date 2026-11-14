@@ -88,12 +88,16 @@ impl Settings {
             .unwrap_or_default()
     }
 
-    pub fn save(&self, dir: Option<&Path>) {
-        let Some(dir) = dir else { return };
-        let _ = std::fs::create_dir_all(dir);
-        if let Ok(text) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(dir.join(FILE), text);
-        }
+    /// Write the settings to `dir`, returning the file written.
+    pub fn save(&self, dir: Option<&Path>) -> std::io::Result<std::path::PathBuf> {
+        let Some(dir) = dir else {
+            return Err(std::io::Error::other("there is no settings folder"));
+        };
+        std::fs::create_dir_all(dir)?;
+        let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        let path = dir.join(FILE);
+        std::fs::write(&path, text)?;
+        Ok(path)
     }
 }
 
@@ -168,7 +172,7 @@ mod tests {
             }),
             welcomed: true,
         };
-        settings.save(Some(&dir));
+        settings.save(Some(&dir)).unwrap();
         assert_eq!(Settings::load(Some(&dir)), settings);
         let _ = std::fs::remove_dir_all(&dir);
     }

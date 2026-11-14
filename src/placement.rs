@@ -25,9 +25,13 @@ mod imp {
     use gpui_kit::Window;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromRect};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO,
+        MonitorFromRect,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowPlacement, SW_SHOWMAXIMIZED, SW_SHOWNORMAL, SetWindowPlacement, WINDOWPLACEMENT,
+        GetWindowPlacement, GetWindowRect, SW_SHOWMAXIMIZED, SW_SHOWNORMAL, SetWindowPlacement,
+        WINDOWPLACEMENT,
     };
 
     use super::NativePlacement;
@@ -48,14 +52,56 @@ mod imp {
         };
         // SAFETY: a valid window handle and a placement sized as required.
         unsafe { GetWindowPlacement(hwnd, &mut placement) }.ok()?;
-        let rect = placement.rcNormalPosition;
+        let maximized = placement.showCmd == SW_SHOWMAXIMIZED.0 as u32;
+        if maximized {
+            // The size it goes back to when restored, which a maximized
+            // window keeps in its placement.
+            let rect = placement.rcNormalPosition;
+            return Some(NativePlacement {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                maximized,
+            });
+        }
+        // Not maximized: where it actually is. A window snapped to half the
+        // screen (or arranged by FancyZones) keeps its pre-snap size in its
+        // placement, so that would put it back unsnapped. The real rectangle
+        // is in screen coordinates; a placement wants workspace coordinates
+        // (relative to the monitor's work area), so convert.
+        let mut rect = RECT::default();
+        // SAFETY: a valid window handle and an out-rectangle.
+        unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+        let (dx, dy) = work_area_offset(&rect);
         Some(NativePlacement {
-            left: rect.left,
-            top: rect.top,
-            right: rect.right,
-            bottom: rect.bottom,
-            maximized: placement.showCmd == SW_SHOWMAXIMIZED.0 as u32,
+            left: rect.left - dx,
+            top: rect.top - dy,
+            right: rect.right - dx,
+            bottom: rect.bottom - dy,
+            maximized,
         })
+    }
+
+    /// How far the work area of the monitor showing `rect` is from that
+    /// monitor's corner (a taskbar on the top or left edge moves it).
+    fn work_area_offset(rect: &RECT) -> (i32, i32) {
+        // SAFETY: monitor lookup and info query into a sized struct.
+        unsafe {
+            let monitor = MonitorFromRect(rect, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut info).as_bool() {
+                (
+                    info.rcWork.left - info.rcMonitor.left,
+                    info.rcWork.top - info.rcMonitor.top,
+                )
+            } else {
+                (0, 0)
+            }
+        }
     }
 
     /// Whether any monitor still shows part of the rectangle.

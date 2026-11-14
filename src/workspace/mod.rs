@@ -610,7 +610,7 @@ impl Workspace {
         } else {
             Appearance::Light
         });
-        self.settings.save(self.config_dir.as_deref());
+        let _ = self.settings.save(self.config_dir.as_deref());
         cx.notify();
     }
 
@@ -1271,7 +1271,7 @@ impl Workspace {
             return false;
         }
         self.settings.welcomed = true;
-        self.settings.save(self.config_dir.as_deref());
+        let _ = self.settings.save(self.config_dir.as_deref());
         true
     }
 
@@ -1287,7 +1287,9 @@ impl Workspace {
                 cx.background_executor()
                     .timer(std::time::Duration::from_millis(400))
                     .await;
-                let _ = this.update_in(cx, |this, window, _| this.remember_window(window));
+                let _ = this.update_in(cx, |this, window, _| {
+                    this.remember_window_because(window, "moved or resized")
+                });
             }));
         }));
         // Weak, and taken without upgrading: this may run while the
@@ -1297,7 +1299,7 @@ impl Workspace {
             let Some(this) = this.upgrade() else { return true };
             this.update(cx, |this, cx| {
                 if this.close_confirmed || !this.has_unsaved_changes() {
-                    this.remember_window(window);
+                    this.remember_window_because(window, "closing");
                     return true;
                 }
                 this.confirm_close(window, cx);
@@ -1308,6 +1310,10 @@ impl Workspace {
 
     /// Keep where the window is, so the next start opens it there.
     pub fn remember_window(&mut self, window: &Window) {
+        self.remember_window_because(window, "asked");
+    }
+
+    fn remember_window_because(&mut self, window: &Window, reason: &str) {
         let (bounds, maximized) = match window.window_bounds() {
             gpui_kit::WindowBounds::Windowed(bounds) => (bounds, false),
             gpui_kit::WindowBounds::Maximized(bounds)
@@ -1321,7 +1327,17 @@ impl Workspace {
             maximized,
             native: crate::placement::read(window),
         });
-        self.settings.save(self.config_dir.as_deref());
+        let native = self.settings.window.and_then(|place| place.native);
+        match self.settings.save(self.config_dir.as_deref()) {
+            Ok(path) => crate::log::write(format!(
+                "window place saved ({reason}): {native:?} maximized={maximized} -> {}",
+                path.display()
+            )),
+            Err(error) => crate::log::write(format!(
+                "window place NOT saved ({reason}): {error} (folder {:?})",
+                self.config_dir
+            )),
+        }
     }
 
     fn confirm_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
