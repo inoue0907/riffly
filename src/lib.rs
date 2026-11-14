@@ -2,6 +2,7 @@
 //! markdown, built on GPUI with Tiptap's command surface.
 
 pub mod editor;
+pub mod pdf;
 pub mod workspace;
 
 pub use editor::RifflyEditor;

@@ -20,6 +20,7 @@ pub mod input_rules;
 pub mod keymap;
 pub mod mark;
 pub mod markdown;
+pub mod html;
 pub mod selection;
 pub mod slash;
 pub mod suggestion;

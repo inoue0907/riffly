@@ -142,6 +142,7 @@ fn main() {
         editor::init(cx);
         editor::theme::init_appearance_actions(cx);
         workspace::init(cx);
+        riffly::pdf::init(cx);
 
         // Files named on the command line open in tabs; with none, the demo
         // document does.

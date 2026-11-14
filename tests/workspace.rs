@@ -23,6 +23,7 @@ fn setup(cx: &mut TestAppContext, name: &str) -> Harness {
     cx.update(gpui_kit::init);
     cx.update(editor::init);
     cx.update(workspace::init);
+    cx.update(riffly::pdf::init);
 
     let dir = std::env::temp_dir().join(format!("riffly-ws-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -376,4 +377,106 @@ fn f1_shows_and_hides_the_shortcuts(cx: &mut TestAppContext) {
     cx.update(|cx| assert!(h.workspace.read(cx).shortcuts_are_shown()));
     act(&h, cx, ToggleShortcuts);
     cx.update(|cx| assert!(!h.workspace.read(cx).shortcuts_are_shown()));
+}
+
+#[gpui_kit::test]
+fn an_html_file_opens_as_blocks_and_saves_as_html(cx: &mut TestAppContext) {
+    let h = setup(cx, "html");
+    let path = h.file(
+        "page.html",
+        "<html><head><title>x</title></head><body><h1>Report</h1>\
+         <p>Plain and <strong>bold</strong>.</p><ul><li>item</li></ul></body></html>",
+    );
+    h.open(cx, &path);
+    let types = cx.update(|cx| {
+        let editor = h.workspace.read(cx).active_editor().unwrap();
+        editor
+            .read(cx)
+            .content()
+            .into_iter()
+            .map(|b| (b.ty.to_string(), b.text))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        types,
+        vec![
+            ("heading".to_string(), "Report".to_string()),
+            ("paragraph".to_string(), "Plain and bold.".to_string()),
+            ("bulletList".to_string(), "item".to_string()),
+        ]
+    );
+
+    h.ui(cx, |workspace, window, cx| {
+        let editor = workspace.read(cx).active_editor().unwrap();
+        editor.update(cx, |editor, cx| {
+            editor.select_text_in_block(2, 4..4, window, cx);
+            editor.insert_content(" two", window, cx);
+        });
+    });
+    h.ui(cx, |_, window, cx| window.dispatch_action(SaveFile.boxed_clone(), cx));
+
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(written.starts_with("<!doctype html>"), "{written}");
+    assert!(written.contains("<h1>Report</h1>"), "{written}");
+    assert!(written.contains("<p>Plain and <strong>bold</strong>.</p>"), "{written}");
+    assert!(written.contains("<li>item two</li>"), "{written}");
+}
+
+#[cfg(windows)]
+#[gpui_kit::test]
+fn a_pdf_opens_in_a_viewer_and_keeps_its_comments_beside_it(cx: &mut TestAppContext) {
+    let h = setup(cx, "pdf");
+    let path = h.dir.join("paper.pdf");
+    std::fs::write(&path, riffly::pdf::render::sample_pdf(&[(612, 792), (612, 792), (612, 792)]))
+        .unwrap();
+    h.open(cx, &path);
+    // Opening happens in the background; let it finish.
+    for _ in 0..20 {
+        cx.run_until_parked();
+        if cx.update(|cx| h.workspace.read(cx).active_pdf().is_some_and(|p| !p.read(cx).is_loading())) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    let pdf = cx.update(|cx| h.workspace.read(cx).active_pdf()).expect("a PDF tab");
+    cx.update(|cx| {
+        let view = pdf.read(cx);
+        assert_eq!(view.error(), None);
+        assert_eq!(view.page_count(), 3);
+        assert_eq!(h.workspace.read(cx).tab_titles()[0].as_ref(), "paper.pdf");
+    });
+
+    // Comment on page 2, the way a double-click would.
+    h.ui(cx, |_, window, cx| {
+        pdf.update(cx, |pdf, cx| {
+            pdf.add_comment_at(1, 0.5, 0.25, window, cx);
+        })
+    });
+    for ch in "too vague".chars() {
+        let ch = ch.to_string();
+        h.ui(cx, |_, window, cx| window.input(&ch, cx));
+    }
+    h.ui(cx, |_, window, cx| window.press("enter", cx));
+
+    let saved = riffly::pdf::load_comments(&path);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].page, 1);
+    assert_eq!(saved[0].notes[0].body, "too vague");
+
+    // Esc closes it; Ctrl+Alt+N brings it back; Ctrl+Alt+R resolves it.
+    h.ui(cx, |_, window, cx| window.press("escape", cx));
+    cx.update(|cx| assert_eq!(pdf.read(cx).open_comment(), None));
+    h.ui(cx, |_, window, cx| window.press("secondary-alt-n", cx));
+    cx.update(|cx| assert_eq!(pdf.read(cx).open_comment(), Some(saved[0].id)));
+    h.ui(cx, |_, window, cx| window.press("secondary-alt-r", cx));
+    assert!(riffly::pdf::load_comments(&path)[0].resolved);
+
+    // Reopening the PDF reads the comments back.
+    h.ui(cx, |workspace, window, cx| {
+        workspace.update(cx, |workspace, cx| workspace.close_tab(0, window, cx))
+    });
+    h.open(cx, &path);
+    let pdf = cx.update(|cx| h.workspace.read(cx).active_pdf()).unwrap();
+    cx.update(|cx| assert_eq!(pdf.read(cx).comments().len(), 1));
 }

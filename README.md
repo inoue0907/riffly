@@ -28,8 +28,13 @@ sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
 
 ## What it does
 
-- **Files**: documents are markdown on disk. Open several, save, save as; unsaved tabs
-  are marked and closing one (or the window) asks first.
+- **Files**: Markdown (`.md`) and HTML (`.html`) open as editable documents and are
+  saved back in the format they came in (or another, with Save as). Unsaved tabs are
+  marked, and closing one (or the window) asks first.
+- **PDF**: a PDF opens read-only, page by page as printed, and you can pin comments
+  anywhere on a page — double-click it. Comments are kept beside the file in
+  `<name>.pdf.riffly-comments.json` and saved as you write them. (Windows only for
+  now: pages are drawn by the system's own PDF engine.)
 - **Tabs and panes**: every document is a tab; split the window into panes side by side,
   drag tabs between them, drag a divider to resize (double-click to equalize).
 - **Sidebar**: the active document's outline (click a heading to jump to it) and the

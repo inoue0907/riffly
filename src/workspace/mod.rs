@@ -27,7 +27,8 @@ use crate::editor::block::{BlockContent, BlockId};
 use crate::editor::theme::{ActiveEditorTheme, ToggleAppearance};
 use crate::editor::ui::icon;
 use crate::editor::view::DocumentChanged;
-use crate::editor::{RifflyEditor, markdown};
+use crate::editor::{RifflyEditor, html, markdown};
+use crate::pdf::{CommentsChanged, PdfView};
 use recent::RecentFiles;
 use settings::{Appearance, Settings};
 
@@ -83,7 +84,7 @@ pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         "Files",
         &[
             ("Ctrl+N / Ctrl+T", "New tab"),
-            ("Ctrl+O", "Open a file"),
+            ("Ctrl+O", "Open a file (.md, .html, .pdf)"),
             ("Ctrl+S", "Save"),
             ("Ctrl+Alt+S", "Save as"),
             ("Ctrl+W", "Close tab"),
@@ -172,6 +173,19 @@ pub const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
+        "PDF",
+        &[
+            ("Double-click a page", "Comment there"),
+            ("Ctrl+Shift+M, then click", "Comment where you click"),
+            ("Ctrl+Alt+N / Ctrl+Alt+P", "Next / previous comment"),
+            ("Ctrl+Alt+R / Ctrl+Alt+Shift+M", "Resolve / delete the comment"),
+            ("PageDown / PageUp", "Next / previous page"),
+            ("Home / End", "First / last page"),
+            ("Ctrl+= / Ctrl+- / Ctrl+0", "Zoom the pages"),
+            ("Esc", "Close the comment"),
+        ],
+    ),
+    (
         "Tables",
         &[
             ("Tab / Shift+Tab", "Next / previous cell"),
@@ -253,9 +267,40 @@ pub fn default_config_dir() -> Option<PathBuf> {
 type TabId = u64;
 type PaneId = u64;
 
+/// What a tab shows: a document to edit, or a PDF to read and comment on.
+#[derive(Clone)]
+enum Content {
+    Doc(Entity<RifflyEditor>),
+    Pdf(Entity<PdfView>),
+}
+
+/// How a document is written to disk, chosen by its file's extension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Format {
+    Markdown,
+    Html,
+}
+
+impl Format {
+    pub fn of(path: &Path) -> Self {
+        match extension(path).as_deref() {
+            Some("html" | "htm" | "xhtml") => Self::Html,
+            _ => Self::Markdown,
+        }
+    }
+}
+
+fn extension(path: &Path) -> Option<String> {
+    path.extension().map(|ext| ext.to_string_lossy().to_lowercase())
+}
+
+fn is_pdf(path: &Path) -> bool {
+    extension(path).as_deref() == Some("pdf")
+}
+
 struct Tab {
     id: TabId,
-    editor: Entity<RifflyEditor>,
+    content: Content,
     path: Option<PathBuf>,
     /// Changed since it was opened or last saved.
     dirty: bool,
@@ -263,6 +308,34 @@ struct Tab {
 }
 
 impl Tab {
+    fn editor(&self) -> Option<&Entity<RifflyEditor>> {
+        match &self.content {
+            Content::Doc(editor) => Some(editor),
+            Content::Pdf(_) => None,
+        }
+    }
+
+    fn pdf(&self) -> Option<&Entity<PdfView>> {
+        match &self.content {
+            Content::Pdf(pdf) => Some(pdf),
+            Content::Doc(_) => None,
+        }
+    }
+
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        match &self.content {
+            Content::Doc(editor) => editor.focus_handle(cx),
+            Content::Pdf(pdf) => pdf.focus_handle(cx),
+        }
+    }
+
+    fn icon(&self) -> &'static str {
+        match self.content {
+            Content::Pdf(_) => "book-open",
+            Content::Doc(_) => "file-text",
+        }
+    }
+
     fn title(&self) -> SharedString {
         self.path
             .as_ref()
@@ -446,7 +519,12 @@ impl Workspace {
     }
 
     pub fn active_editor(&self) -> Option<Entity<RifflyEditor>> {
-        self.pane().active_tab().map(|tab| tab.editor.clone())
+        self.pane().active_tab().and_then(|tab| tab.editor().cloned())
+    }
+
+    /// The PDF the active pane shows, if it shows one.
+    pub fn active_pdf(&self) -> Option<Entity<PdfView>> {
+        self.pane().active_tab().and_then(|tab| tab.pdf().cloned())
     }
 
     /// Titles of the active pane's tabs.
@@ -498,7 +576,7 @@ impl Workspace {
     /// edits, one empty paragraph. A file opened next replaces it.
     fn pristine_tab(&self, cx: &App) -> Option<TabId> {
         let tab = self.pane().active_tab()?;
-        let editor = tab.editor.read(cx);
+        let editor = tab.editor()?.read(cx);
         (tab.path.is_none()
             && !tab.dirty
             && editor.block_count() == 1
@@ -549,24 +627,56 @@ impl Workspace {
             cx.observe(&editor, |_, _, cx| cx.notify()),
         ];
 
+        self.insert_tab(
+            Tab {
+                id,
+                content: Content::Doc(editor.clone()),
+                path,
+                dirty: false,
+                _subscriptions: subscriptions,
+            },
+            window,
+            cx,
+        );
+        editor
+    }
+
+    /// Open a PDF in a new tab after the active one and bring it forward.
+    pub fn add_pdf_tab(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<PdfView> {
+        let pdf = cx.new(|cx| PdfView::open(path.clone(), window, cx));
+        let id = self.fresh_id();
+        let subscriptions = vec![
+            cx.subscribe(&pdf, |_, _, _: &CommentsChanged, cx| cx.notify()),
+            cx.observe(&pdf, |_, _, cx| cx.notify()),
+        ];
+        self.insert_tab(
+            Tab {
+                id,
+                content: Content::Pdf(pdf.clone()),
+                path: Some(path),
+                dirty: false,
+                _subscriptions: subscriptions,
+            },
+            window,
+            cx,
+        );
+        pdf
+    }
+
+    fn insert_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
         let pane = &mut self.panes[self.active_pane];
         let at = if pane.tabs.is_empty() {
             0
         } else {
             (pane.active + 1).min(pane.tabs.len())
         };
-        pane.tabs.insert(
-            at,
-            Tab {
-                id,
-                editor: editor.clone(),
-                path,
-                dirty: false,
-                _subscriptions: subscriptions,
-            },
-        );
+        pane.tabs.insert(at, tab);
         self.activate_at(self.active_pane, at, window, cx);
-        editor
     }
 
     pub fn new_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -583,10 +693,13 @@ impl Workspace {
         let Some(tab) = self.panes.get(pane).and_then(|p| p.tabs.get(ix)) else {
             return;
         };
-        let editor = tab.editor.clone();
+        let content = tab.content.clone();
         self.active_pane = pane;
         self.panes[pane].active = ix;
-        editor.update(cx, |editor, cx| editor.focus_document(window, cx));
+        match content {
+            Content::Doc(editor) => editor.update(cx, |editor, cx| editor.focus_document(window, cx)),
+            Content::Pdf(pdf) => window.focus(&pdf.focus_handle(cx), cx),
+        }
         cx.notify();
     }
 
@@ -860,10 +973,11 @@ impl Workspace {
     /// How many rows the sidebar's keyboard cursor walks: the outline, then
     /// the recent files.
     fn sidebar_rows(&self, cx: &App) -> (usize, usize) {
-        let outline = self
-            .active_editor()
-            .map(|editor| editor.read(cx).outline().len())
-            .unwrap_or(0);
+        let outline = match (self.active_editor(), self.active_pdf()) {
+            (Some(editor), _) => editor.read(cx).outline().len(),
+            (None, Some(pdf)) => pdf.read(cx).page_count(),
+            _ => 0,
+        };
         (outline, self.recent.entries().len())
     }
 
@@ -883,11 +997,14 @@ impl Workspace {
 
     /// Ctrl+Shift+O: the outline, at the heading the caret is under.
     pub fn focus_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let row = self.active_editor().and_then(|editor| {
-            let editor = editor.read(cx);
-            let current = editor.current_heading()?;
-            editor.outline().iter().position(|item| item.id == current)
-        });
+        let row = match self.active_pdf() {
+            Some(pdf) => Some(pdf.read(cx).current_page()),
+            None => self.active_editor().and_then(|editor| {
+                let editor = editor.read(cx);
+                let current = editor.current_heading()?;
+                editor.outline().iter().position(|item| item.id == current)
+            }),
+        };
         self.focus_sidebar(Some(row.unwrap_or(0)), window, cx);
     }
 
@@ -917,6 +1034,9 @@ impl Workspace {
             if let Some(editor) = self.active_editor() {
                 let id = editor.read(cx).outline()[row].id;
                 editor.update(cx, |editor, cx| editor.reveal_block(id, window, cx));
+            } else if let Some(pdf) = self.active_pdf() {
+                pdf.update(cx, |pdf, cx| pdf.scroll_to_page(row, cx));
+                window.focus(&pdf.focus_handle(cx), cx);
             }
         } else if let Some(path) = self.recent.entries().get(row - outline).cloned() {
             self.open_path(path, window, cx);
@@ -978,18 +1098,33 @@ impl Workspace {
             return;
         }
 
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) => {
-                self.error = Some(format!("Couldn't open {}: {error}", path.display()).into());
-                self.recent.remove(&path);
-                cx.notify();
-                return;
-            }
-        };
-        self.error = None;
+        if !path.is_file() {
+            self.error = Some(format!("Couldn't open {}: it is not there", path.display()).into());
+            self.recent.remove(&path);
+            cx.notify();
+            return;
+        }
         let replace = self.pristine_tab(cx);
-        self.add_tab(markdown::parse(&text), Some(path.clone()), window, cx);
+        if is_pdf(&path) {
+            self.error = None;
+            self.add_pdf_tab(path.clone(), window, cx);
+        } else {
+            let text = match std::fs::read(&path) {
+                Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                Err(error) => {
+                    self.error = Some(format!("Couldn't open {}: {error}", path.display()).into());
+                    self.recent.remove(&path);
+                    cx.notify();
+                    return;
+                }
+            };
+            self.error = None;
+            let content = match Format::of(&path) {
+                Format::Html => html::parse(&text),
+                Format::Markdown => markdown::parse(&text),
+            };
+            self.add_tab(content, Some(path.clone()), window, cx);
+        }
         if let Some(id) = replace
             && let Some((pane_ix, ix)) = self.locate(id)
         {
@@ -1032,6 +1167,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let Some(tab) = self.tab(id) else { return };
+        // A PDF is never written; its comments save themselves.
+        if tab.pdf().is_some() {
+            if close {
+                self.remove_tab(id, window, cx);
+            }
+            return;
+        }
         if let Some(path) = tab.path.clone()
             && !choose
         {
@@ -1070,14 +1212,19 @@ impl Workspace {
             .as_deref()
             .and_then(Path::file_name)
             .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_else(|| suggested_name(&tab.editor, cx));
+            .unwrap_or_else(|| tab.editor().map(|e| suggested_name(e, cx)).unwrap_or_default());
         let chosen = cx.prompt_for_new_path(&directory, Some(&suggested));
         Some(async move { chosen.await.ok()?.ok()?.map(with_markdown_extension) })
     }
 
     fn write_tab(&mut self, id: TabId, path: PathBuf, cx: &mut Context<Self>) -> bool {
-        let Some(tab) = self.tab(id) else { return false };
-        let text = tab.editor.read(cx).to_markdown(cx);
+        let Some(editor) = self.tab(id).and_then(|tab| tab.editor().cloned()) else {
+            return false;
+        };
+        let text = match Format::of(&path) {
+            Format::Html => editor.read(cx).to_html(cx),
+            Format::Markdown => editor.read(cx).to_markdown(cx),
+        };
         match std::fs::write(&path, text) {
             Ok(()) => {
                 self.error = None;
@@ -1264,6 +1411,7 @@ impl Workspace {
             let shown = ix == pane.active;
             let id = tab.id;
             let title = tab.title();
+            let tab_icon = tab.icon();
             h_flex()
                 .id(("tab", id as usize))
                 .h_full()
@@ -1321,7 +1469,7 @@ impl Workspace {
                         .and_then(|pane| this.panes[pane].tabs.iter().position(|t| t.id == id));
                     this.move_tab(dragged.id, pane_id, at, window, cx);
                 }))
-                .child(icon("file-text", theme.rems(0.875), colors.muted_foreground))
+                .child(icon(tab_icon, theme.rems(0.875), colors.muted_foreground))
                 .child(div().min_w_0().truncate().child(title))
                 .child(
                     div()
@@ -1424,7 +1572,10 @@ impl Workspace {
     fn render_pane(&self, pane_ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let pane = &self.panes[pane_ix];
         let pane_id = pane.id;
-        let editor = pane.active_tab().map(|tab| tab.editor.clone());
+        let editor: Option<AnyElement> = pane.active_tab().map(|tab| match &tab.content {
+            Content::Doc(editor) => editor.clone().into_any_element(),
+            Content::Pdf(pdf) => pdf.clone().into_any_element(),
+        });
         let dragging = cx.has_active_drag() && !self.resizing;
 
         v_flex()
@@ -1614,18 +1765,22 @@ impl Workspace {
         let theme = cx.editor_theme().clone();
         let colors = cx.theme().clone();
 
-        let (outline, current) = match self.pane().active_tab() {
-            Some(tab) => {
-                let editor = tab.editor.read(cx);
+        let (outline, current) = match self.pane().active_tab().and_then(Tab::editor) {
+            Some(editor) => {
+                let editor = editor.read(cx);
                 (editor.outline(), editor.current_heading())
             }
             None => (Vec::new(), None),
         };
+        let pdf = self.active_pdf();
         let editor = self.active_editor();
         let min_level = outline.iter().map(|item| item.level).min().unwrap_or(1);
 
         let cursor = self.sidebar_cursor;
-        let outline_len = outline.len();
+        let outline_len = match &pdf {
+            Some(pdf) => pdf.read(cx).page_count(),
+            None => outline.len(),
+        };
         let outline_rows: Vec<AnyElement> = outline
             .into_iter()
             .enumerate()
@@ -1680,7 +1835,11 @@ impl Workspace {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_path(target.clone(), window, cx)
                     }))
-                    .child(icon("file-text", theme.rems(0.875), colors.muted_foreground))
+                    .child(icon(
+                        if is_pdf(path) { "book-open" } else { "file-text" },
+                        theme.rems(0.875),
+                        colors.muted_foreground,
+                    ))
                     .child(
                         v_flex()
                             .min_w_0()
@@ -1697,6 +1856,79 @@ impl Workspace {
             })
             .collect();
 
+        // A PDF lists its pages where a document lists its headings, and its
+        // comments below them.
+        let (page_rows, comment_rows): (Vec<AnyElement>, Vec<AnyElement>) = match &pdf {
+            Some(pdf_entity) => {
+                let view = pdf_entity.read(cx);
+                let current_page = view.current_page();
+                let open = view.open_comment();
+                let pages = (0..view.page_count())
+                    .map(|page| {
+                        let target = pdf_entity.clone();
+                        sidebar_row(("pdf-page-row", page), page == current_page, cursor == Some(page), cx)
+                            .on_click(move |_, window, cx| {
+                                target.update(cx, |pdf, cx| pdf.scroll_to_page(page, cx));
+                                window.focus(&target.focus_handle(cx), cx);
+                            })
+                            .child(format!("Page {}", page + 1))
+                            .into_any_element()
+                    })
+                    .collect();
+                let comments = view
+                    .numbered_comments()
+                    .into_iter()
+                    .map(|(number, comment)| {
+                        let target = pdf_entity.clone();
+                        let id = comment.id;
+                        let text = comment
+                            .notes
+                            .first()
+                            .map(|note| note.body.replace('\n', " "))
+                            .unwrap_or_default();
+                        sidebar_row(("pdf-comment-row", id as usize), open == Some(id), false, cx)
+                            .h(theme.rems(2.5))
+                            .on_click(move |_, window, cx| {
+                                target.update(cx, |pdf, cx| pdf.show_comment(id, window, cx));
+                            })
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .size(theme.rems(1.25))
+                                    .rounded_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(theme.ui_text_size * 0.8)
+                                    .bg(gpui_kit::rgb(0xF2C94C))
+                                    .text_color(gpui_kit::rgb(0x37352F))
+                                    .child(number.to_string()),
+                            )
+                            .child(
+                                v_flex()
+                                    .min_w_0()
+                                    .child(div().truncate().child(text))
+                                    .child(
+                                        div()
+                                            .text_size(theme.ui_text_size * 0.85)
+                                            .text_color(colors.muted_foreground)
+                                            .child(format!(
+                                                "Page {} · {} {}",
+                                                comment.page + 1,
+                                                comment.notes.len(),
+                                                if comment.notes.len() == 1 { "note" } else { "notes" }
+                                            )),
+                                    ),
+                            )
+                            .into_any_element()
+                    })
+                    .collect();
+                (pages, comments)
+            }
+            None => (Vec::new(), Vec::new()),
+        };
+        let is_pdf_tab = pdf.is_some();
+        let has_comments = !comment_rows.is_empty();
         let has_outline = !outline_rows.is_empty();
         let has_recent = !recent_rows.is_empty();
         let dark = self.is_dark(cx);
@@ -1777,10 +2009,21 @@ impl Workspace {
                     .overflow_y_scroll()
                     .px(theme.rems(0.375))
                     .pb(theme.rems(0.75))
-                    .child(section_header("list-tree", "Outline", cx))
-                    .children(outline_rows)
-                    .when(!has_outline, |this| {
-                        this.child(placeholder("Headings appear here.", cx))
+                    .when(is_pdf_tab, |this| {
+                        this.child(section_header("book-open", "Pages", cx))
+                            .children(page_rows)
+                            .child(section_header("message-square", "Comments", cx))
+                            .children(comment_rows)
+                            .when(!has_comments, |this| {
+                                this.child(placeholder("Double-click a page to comment.", cx))
+                            })
+                    })
+                    .when(!is_pdf_tab, |this| {
+                        this.child(section_header("list-tree", "Outline", cx))
+                            .children(outline_rows)
+                            .when(!has_outline, |this| {
+                                this.child(placeholder("Headings appear here.", cx))
+                            })
                     })
                     .child(
                         section_header("clock", "Recent", cx).when(has_recent, |this| {
@@ -1937,7 +2180,7 @@ impl Render for Workspace {
         // keyboard got there.
         if let Some(pane) = self.panes.iter().position(|pane| {
             pane.active_tab()
-                .is_some_and(|tab| tab.editor.focus_handle(cx).contains_focused(window, cx))
+                .is_some_and(|tab| tab.focus_handle(cx).contains_focused(window, cx))
         }) {
             self.active_pane = pane;
         }
