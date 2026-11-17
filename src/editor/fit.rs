@@ -103,7 +103,14 @@ impl InputFit {
     /// The inset only ever widens: text areas are snapped to whole device
     /// pixels, and following that snapping in both directions never settles.
     /// A text area with far more room than its text asks for means the block
-    /// changed shape underneath, and starts the measurement again.
+    /// changed shape underneath, and starts the inset's measurement again.
+    ///
+    /// The lead is kept: it is where the input puts its first glyph, which a
+    /// change of height does not move. Forgetting it with the inset narrowed
+    /// the text area by the lead it had learned, a line close to the edge
+    /// wrapped into a row the block had not counted, the inset widened for
+    /// it, the room that made reset everything again — and the block
+    /// flickered between the two shapes for as long as it was on screen.
     pub fn observe(&mut self, text: Pixels, text_area: Pixels, theme: &EditorTheme) {
         if text_area <= px(0.) {
             return;
@@ -114,7 +121,7 @@ impl InputFit {
             let widened = self.inset + (text - text_area) + INPUT_INSET_SLACK;
             self.inset = widened.min(theme.max_input_inset);
         } else if text_area - text > INPUT_INSET_SLACK * 4. {
-            *self = Self::new(theme);
+            self.inset = Self::new(theme).inset;
         }
     }
 
@@ -219,6 +226,23 @@ mod tests {
             );
             assert_eq!(fit.lead(), settled, "moved for an error of {error:?}");
         }
+    }
+
+    #[test]
+    fn starting_the_inset_again_keeps_the_lead() {
+        let theme = tokens();
+        let mut fit = InputFit::new(&theme);
+        let slot = point(px(144.), px(48.));
+        fit.observe_lead(slot, slot + point(px(10.), px(0.)), &theme, DEVICE_PIXEL);
+        let lead = fit.lead();
+
+        // Short of room, then far too much: the inset starts over.
+        fit.observe(px(52.), px(26.), &theme);
+        assert!(fit.inset() > InputFit::new(&theme).inset());
+        fit.observe(px(26.), px(80.), &theme);
+
+        assert_eq!(fit.inset(), InputFit::new(&theme).inset());
+        assert_eq!(fit.lead(), lead, "the lead was forgotten with the inset");
     }
 
     #[test]

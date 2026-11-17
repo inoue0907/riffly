@@ -159,11 +159,14 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
     let lines: Vec<&str> = source.lines().collect();
     let mut blocks = Vec::new();
     let mut paragraph: Vec<&str> = Vec::new();
+    // How deep the paragraph being gathered is nested: its first line's
+    // indentation, kept so an indented paragraph stays indented.
+    let mut paragraph_indent = 0;
     let mut ix = 0;
 
-    let flush = |paragraph: &mut Vec<&str>, blocks: &mut Vec<BlockContent>| {
+    let flush = |paragraph: &mut Vec<&str>, indent: usize, blocks: &mut Vec<BlockContent>| {
         if !paragraph.is_empty() {
-            blocks.push(BlockContent::paragraph(paragraph.join("\n")));
+            blocks.push(BlockContent::paragraph(paragraph.join("\n")).with_indent(indent));
             paragraph.clear();
         }
     };
@@ -173,14 +176,14 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         let (indent, line) = indent_of(raw);
 
         if line.trim().is_empty() {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             ix += 1;
             continue;
         }
 
         // A fenced code block runs to its closing fence, verbatim.
         if let Some(language) = line.strip_prefix("```") {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             let mut code = Vec::new();
             ix += 1;
             while ix < lines.len() && !lines[ix].trim_start().starts_with("```") {
@@ -199,7 +202,7 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         }
 
         if let Some((level, text)) = heading(line) {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             blocks.push(
                 BlockContent::new(types::HEADING, text).with_attrs(BlockAttrs::level(level)),
             );
@@ -208,7 +211,7 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         }
 
         if is_rule(line) {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             blocks.push(BlockContent::new(types::HORIZONTAL_RULE, ""));
             ix += 1;
             continue;
@@ -217,7 +220,7 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         if line.trim_start().starts_with('|')
             && lines.get(ix + 1).is_some_and(|next| is_table_rule(next))
         {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             let mut rows = vec![table_cells(line)];
             ix += 2;
             while ix < lines.len() && lines[ix].trim_start().starts_with('|') {
@@ -234,7 +237,7 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         }
 
         if let Some((alt, src)) = image(line) {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             let attrs = BlockAttrs {
                 src: Some(src.into()),
                 alt: Some(alt.into()),
@@ -246,7 +249,7 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         }
 
         if line.starts_with('>') {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             let mut quoted = Vec::new();
             while ix < lines.len() {
                 let (_, next) = indent_of(lines[ix]);
@@ -272,7 +275,7 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
         }
 
         if let Some((ty, attrs, text)) = list_item(line) {
-            flush(&mut paragraph, &mut blocks);
+            flush(&mut paragraph, paragraph_indent, &mut blocks);
             blocks.push(
                 BlockContent::new(ty, text)
                     .with_attrs(attrs)
@@ -282,10 +285,13 @@ pub fn parse(source: &str) -> Vec<BlockContent> {
             continue;
         }
 
+        if paragraph.is_empty() {
+            paragraph_indent = indent;
+        }
         paragraph.push(line);
         ix += 1;
     }
-    flush(&mut paragraph, &mut blocks);
+    flush(&mut paragraph, paragraph_indent, &mut blocks);
     blocks
 }
 
@@ -336,6 +342,14 @@ mod tests {
     fn a_heading_needs_its_space() {
         let blocks = parse("#hashtag");
         assert_eq!(kinds(&blocks), vec![("paragraph".into(), "#hashtag".into())]);
+    }
+
+    #[test]
+    fn an_indented_paragraph_stays_indented() {
+        let blocks = parse("Top\n\n  Nested two\n\n    Nested four\n");
+        let indents: Vec<usize> = blocks.iter().map(|block| block.indent).collect();
+        assert_eq!(indents, [0, 1, 1]);
+        assert_eq!(blocks[1].text, "Nested two");
     }
 
     #[test]

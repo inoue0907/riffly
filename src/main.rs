@@ -90,6 +90,18 @@ fn open_demo_state(editor: &mut RifflyEditor, window: &mut Window, cx: &mut Cont
             editor.select_text_in_block(3, 0..12, window, cx);
             editor.add_comment(window, cx);
         }
+        // The caret in an empty line between two paragraphs.
+        Ok("empty") => {
+            for ix in (4..editor.block_count()).rev() {
+                if let Some(id) = editor.block_id_at(ix) {
+                    editor.remove_block(id, cx);
+                }
+            }
+            let line = std::env::var("RIFFLY_LINE").unwrap_or_default();
+            editor.insert_block(2, BlockContent::paragraph(line), window, cx);
+            editor.insert_block(3, BlockContent::paragraph(""), window, cx);
+            editor.select_text_in_block(3, 0..0, window, cx);
+        }
         Ok("slash") => {
             editor.focus_last_block(window, cx);
             editor.open_slash_menu(window, cx);

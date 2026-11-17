@@ -74,6 +74,12 @@ pub struct RifflyEditor {
     /// How long each block's shown text was when its rows were last counted,
     /// so an input that redraws with more or less text gets counted again.
     pub(crate) measured_lengths: HashMap<BlockId, usize>,
+    /// The width each block's rows were last counted at, so a block counted
+    /// before its input laid out is counted again at the width it wraps at.
+    measured_widths: HashMap<BlockId, Pixels>,
+    /// Whether the placeholders were last set for a lone block, the blank
+    /// page that alone shows the paragraph hint.
+    hints_lone_block: bool,
     /// The page's scroll position, so a host can bring a block into view.
     pub(crate) page_scroll: gpui_kit::ScrollHandle,
 }
@@ -111,6 +117,8 @@ impl RifflyEditor {
             link_editor: None,
             history: super::history::History::default(),
             measured_lengths: HashMap::new(),
+            measured_widths: HashMap::new(),
+            hints_lone_block: false,
             page_scroll: gpui_kit::ScrollHandle::new(),
             theme: Vec::new(),
         };
@@ -177,6 +185,9 @@ impl RifflyEditor {
     /// one of them holds the caret at all.
     pub(crate) fn refresh_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         use gpui_kit::Focusable as _;
+        if self.hints_lone_block != (self.blocks.len() == 1) {
+            self.sync_placeholders(window, cx);
+        }
         let focused = self
             .blocks
             .iter()
@@ -194,30 +205,31 @@ impl RifflyEditor {
                 return false;
             }
             self.focused = None;
-            self.sync_placeholders(window, cx);
             cx.notify();
             return false;
         }
         self.focused = focused;
         self.selected.clear();
-        self.sync_placeholders(window, cx);
         true
     }
 
-    /// Hint the block being written in, and any block that always hints.
+    /// Hint a document that is nothing but one empty block, and any block
+    /// that always hints.
     ///
-    /// Tiptap's template shows "Write, type '/' for commands…" only in the
-    /// focused empty paragraph, while headings always name themselves.
+    /// Headings always name themselves. "Write, type '/' for commands…" is
+    /// for a blank page only: in a document being written, a hint that came
+    /// and went with the caret made empty lines flicker as it moved.
     pub(crate) fn sync_placeholders(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let registry = BlockRegistry::global(cx);
+        let lone = self.blocks.len() == 1;
+        self.hints_lone_block = lone;
         let wanted: Vec<(usize, SharedString)> = self
             .blocks
             .iter()
             .enumerate()
             .map(|(ix, block)| {
                 let spec = registry.get(&block.ty);
-                let show = spec.placeholder_always() || self.focused == Some(block.id);
-                let text = if show {
+                let text = if spec.placeholder_always() || lone {
                     spec.placeholder(&block.attrs)
                 } else {
                     SharedString::default()
@@ -425,8 +437,8 @@ impl RifflyEditor {
     ) -> Entity<EditorState> {
         let spec = BlockRegistry::global(cx).get(ty);
         let caps = spec.caps();
-        // Only a block that always names itself hints from the start; the
-        // rest hint once they hold the caret (see `sync_placeholders`).
+        // Only a block that always names itself hints from the start; a
+        // blank page's hint follows from `sync_placeholders`.
         let placeholder = if spec.placeholder_always() {
             spec.placeholder(attrs)
         } else {
@@ -831,36 +843,61 @@ impl RifflyEditor {
         self.blocks[ix].rows = rows;
         let shown = self.blocks[ix].state.read(cx).value().len();
         self.measured_lengths.insert(id, shown);
+        self.measured_widths.insert(id, self.wrap_width_at(ix, &layout, cx));
     }
 
-    fn measure_rows(&self, ix: usize, layout: &BlockLayout, cx: &App) -> usize {
+    /// Count again any block whose input now wraps at a width other than the
+    /// one its rows were counted at — above all a block counted before its
+    /// input had laid out, at the estimated width.
+    fn remeasure_rewrapped(&mut self, cx: &App) {
+        for ix in 0..self.blocks.len() {
+            let id = self.blocks[ix].id;
+            let layout = self.layout_at(ix, cx);
+            if self.measured_widths.get(&id) != Some(&self.wrap_width_at(ix, &layout, cx)) {
+                self.remeasure(id, cx);
+            }
+        }
+    }
+
+    /// The width a block's text wraps at.
+    fn wrap_width_at(&self, ix: usize, layout: &BlockLayout, cx: &App) -> Pixels {
         let block = &self.blocks[ix];
-        // The width text wraps at is narrower than the text area: the input
-        // keeps a gutter on the left — the distance measured into the fit's
-        // lead — and the same margin again on the right. The arithmetic in
-        // the fallback is only the guess for a block that has not laid out.
-        let lead = block.fit.lead().x;
-        let wrap_width = block
+        // The width text wraps at is the input's own: its text area less the
+        // fixed gutter it keeps on the left and the margin on the right. It
+        // must be exactly that. Derived from the lead the fit learns instead,
+        // which moves by a fraction of a pixel with the display scale and
+        // with what the last frame drew, a line within a pixel of the edge
+        // was counted as one row while the input wrapped it into two — and
+        // the block flickered between the two as each frame corrected the
+        // last. The arithmetic in the fallback is only the guess for a block
+        // that has not laid out.
+        block
             .state
             .read(cx)
             .text_bounds()
-            .map(|bounds| bounds.size.width - lead * 2.)
+            .map(|bounds| bounds.size.width - INPUT_WRAP_MARGIN)
             .filter(|width| *width > px(1.))
             .unwrap_or_else(|| {
                 self.wrap_width
                     - cx.editor_theme().indent_width * block.indent as f32
                     - layout.leading_width
                     - layout.inner_padding * 2.
-            });
+            })
+    }
+
+    fn measure_rows(&self, ix: usize, layout: &BlockLayout, cx: &App) -> usize {
+        let block = &self.blocks[ix];
+        let wrap_width = self.wrap_width_at(ix, layout, cx);
         if wrap_width <= px(1.) {
             return 1;
         }
-
         let font = self.block_font(layout, cx);
+
         let mut wrapper = cx.text_system().line_wrapper(font, layout.text_size);
         // The text the input shows, which while an IME composes includes the
         // text being composed, not yet in `block.text`.
-        let shown = block.state.read(cx).value();
+        let state = block.state.read(cx);
+        let shown = state.value();
         shown
             .split('\n')
             .map(|line| {
@@ -1269,6 +1306,7 @@ impl Focusable for RifflyEditor {
 
 impl Render for RifflyEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.remeasure_rewrapped(cx);
         self.sync_input_insets(window, cx);
         let in_a_block = self.refresh_focus(window, cx);
         self.refresh_focused_cell(in_a_block, window, cx);
@@ -1445,3 +1483,8 @@ impl RifflyEditor {
             .unwrap_or(types::PARAGRAPH)
     }
 }
+
+/// How much narrower than its text area the input wraps text: the gutter it
+/// keeps on the left of a document input (it has no line numbers) and the
+/// margin it keeps on the right, ten pixels each in gpui-kit.
+const INPUT_WRAP_MARGIN: Pixels = px(20.);

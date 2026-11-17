@@ -2205,3 +2205,112 @@ fn text_being_composed_grows_its_block(cx: &mut TestAppContext) {
     assert_eq!(height_after, height_before);
     cx.update(|cx| assert_eq!(harness.editor.read(cx).block_rows(0), 1));
 }
+
+#[gpui_kit::test]
+fn only_a_blank_page_hints_type_slash(cx: &mut TestAppContext) {
+    let hints = |harness: &Harness, cx: &mut TestAppContext| -> Vec<String> {
+        harness.ui(cx, |_, _| {});
+        cx.update(|cx| {
+            let editor = harness.editor.read(cx);
+            (0..editor.block_count())
+                .map(|ix| editor.block_input(ix).unwrap().read(cx).presentation().placeholder().to_string())
+                .collect()
+        })
+    };
+
+    // A new document is one empty paragraph, and it says what to do.
+    let harness = setup(cx);
+    assert_eq!(hints(&harness, cx), ["Write, type '/' for commands…"]);
+
+    // Once there is a document, empty lines stay blank wherever the caret
+    // goes, so nothing comes and goes as it moves.
+    harness.type_text("one", cx);
+    harness.press("enter", cx);
+    assert_eq!(hints(&harness, cx), ["", ""]);
+    harness.press("up", cx);
+    assert_eq!(hints(&harness, cx), ["", ""]);
+
+    // Back to a blank page, the hint returns.
+    harness.press("down", cx);
+    harness.press("backspace", cx);
+    harness.press("ctrl-a", cx);
+    harness.press("backspace", cx);
+    assert_eq!(harness.texts(cx), [""]);
+    assert_eq!(hints(&harness, cx), ["Write, type '/' for commands…"]);
+
+    // A heading always names itself.
+    harness.type_text("# ", cx);
+    harness.press("enter", cx);
+    assert_eq!(hints(&harness, cx), ["Heading 1", ""]);
+}
+
+#[gpui_kit::test]
+fn a_paragraph_led_by_spaces_keeps_still(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(editor::init);
+
+    // Leading spaces give the wrapper a break before the first word, so a
+    // line just too long to fit can wrap there; try lengths around the edge.
+    for n in 20..90 {
+        let text = format!("  OF{}", "あ".repeat(n));
+        let content = vec![BlockContent::paragraph(text), BlockContent::paragraph("")];
+        let mut view = None;
+        let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
+            let editor = cx.new(|cx| RifflyEditor::with_content(content.clone(), window, cx));
+            view = Some(editor.clone());
+            Root::new(editor, window, cx)
+        });
+        let harness = Harness {
+            editor: view.unwrap(),
+            window: handle.into(),
+        };
+        let last = harness.editor.read_with(cx, |e, cx| e.block_focus_handle(1, cx).unwrap());
+        harness.ui(cx, |window, cx| window.focus(&last, cx));
+
+        let look = |cx: &mut TestAppContext| {
+            harness.ui(cx, |window, _| window.refresh());
+            cx.update(|cx| {
+                let editor = harness.editor.read(cx);
+                let id = editor.block_id_at(0).unwrap();
+                assert!(editor.text_area_fits_text(id, cx), "{n}: cut short");
+                (
+                    editor.block_rows(0),
+                    editor.input_geometry(id, cx),
+                    editor.block_scroll_offset(id, cx),
+                )
+            })
+        };
+        let first = look(cx);
+        for frame in 0..4 {
+            assert_eq!(look(cx), first, "{n}: frame {frame} moved the paragraph");
+        }
+        assert_eq!(first.2.map(|o| o.y), Some(px(0.)), "{n}: scrolled inside");
+    }
+}
+
+#[gpui_kit::test]
+fn a_click_puts_the_caret_in_an_empty_paragraph(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(editor::init);
+
+    let content = vec![
+        BlockContent::paragraph("one"),
+        BlockContent::paragraph(""),
+        BlockContent::paragraph("two"),
+    ];
+    let mut view = None;
+    let handle = cx.open_window(size(px(900.), px(700.)), |window, cx| {
+        let editor = cx.new(|cx| RifflyEditor::with_content(content.clone(), window, cx));
+        view = Some(editor.clone());
+        Root::new(editor, window, cx)
+    });
+    let harness = Harness {
+        editor: view.unwrap(),
+        window: handle.into(),
+    };
+    harness.ui(cx, |_, _| {});
+    let empty = harness.editor.read_with(cx, |e, _| e.block_id_at(1).unwrap());
+
+    harness.ui(cx, |window, cx| window.click(("block", empty.0 as usize), cx));
+    assert_eq!(harness.editor.read_with(cx, |e, _| e.active_index()), Some(1));
+}
