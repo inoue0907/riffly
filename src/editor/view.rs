@@ -425,7 +425,13 @@ impl RifflyEditor {
     ) -> Entity<EditorState> {
         let spec = BlockRegistry::global(cx).get(ty);
         let caps = spec.caps();
-        let placeholder = spec.placeholder(attrs);
+        // Only a block that always names itself hints from the start; the
+        // rest hint once they hold the caret (see `sync_placeholders`).
+        let placeholder = if spec.placeholder_always() {
+            spec.placeholder(attrs)
+        } else {
+            SharedString::default()
+        };
         let language = attrs
             .language
             .clone()
@@ -585,10 +591,7 @@ impl RifflyEditor {
             self.blocks[ix].subscriptions = subscriptions;
             self.blocks[ix].decorations = None;
         } else {
-            let placeholder = spec.placeholder(&self.blocks[ix].attrs);
-            self.blocks[ix]
-                .state
-                .update(cx, |state, cx| state.set_placeholder(placeholder, window, cx));
+            self.sync_placeholders(window, cx);
         }
 
         self.remeasure(id, cx);
