@@ -1128,6 +1128,38 @@ fn a_table_grows_and_shrinks_by_row_and_column(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn a_table_column_is_taken_away_by_its_control(cx: &mut TestAppContext) {
+    let harness = setup(cx);
+    harness.type_text("/table", cx);
+    harness.press("enter", cx);
+    let id = cx.update(|cx| harness.editor.read(cx).block_id_at(0).unwrap());
+    harness.type_text("A", cx);
+    harness.press("tab", cx);
+    harness.type_text("B", cx);
+
+    // The control above the first column takes that column away.
+    cx.update_window(harness.window, |_, window, cx| {
+        window.render_frame(cx);
+        window.hover(("block", id.0 as usize), cx);
+        window.render_frame(cx);
+        window.click(("drop-column", 0usize), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    let (rows, columns, header) = cx.update(|cx| {
+        let grid = harness.editor.read(cx).grid(id).unwrap();
+        (
+            grid.rows(),
+            grid.columns(),
+            grid.cell(CellPosition::new(0, 0)).unwrap().text().to_string(),
+        )
+    });
+    assert_eq!((rows, columns), (3, 2));
+    assert_eq!(header, "B", "the column carrying A was the one removed");
+}
+
+#[gpui_kit::test]
 fn a_table_copies_as_a_markdown_table(cx: &mut TestAppContext) {
     let harness = setup(cx);
     harness.type_text("/table", cx);

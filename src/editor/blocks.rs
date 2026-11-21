@@ -987,6 +987,10 @@ impl BlockSpec for Table {
             .map(|row| row_control(ctx, row, grid.row_height(row), cx))
             .collect();
 
+        // Column controls take a strip above the table, so the row controls
+        // and the add-column button start that much lower to stay level with
+        // the rows.
+        let strip = ctx.theme.rems(1.375);
         Some(
             h_flex()
                 .id(("table", id.0 as usize))
@@ -996,23 +1000,29 @@ impl BlockSpec for Table {
                 .child(
                     v_flex()
                         .flex_1()
-                        .rounded(ctx.theme.radius)
-                        .overflow_hidden()
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .when(ctx.selected, |this| this.border_color(cx.theme().primary))
-                        .children(rows)
-                        .child(add_row_button(ctx, cx)),
+                        .child(column_controls(ctx, columns, strip, cx))
+                        .child(
+                            v_flex()
+                                .rounded(ctx.theme.radius)
+                                .overflow_hidden()
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .when(ctx.selected, |this| {
+                                    this.border_color(cx.theme().primary)
+                                })
+                                .children(rows)
+                                .child(add_row_button(ctx, cx)),
+                        ),
                 )
                 // Row and column controls sit outside the table's frame, the
                 // way block editors keep them out of the data.
                 .child(
                     v_flex()
                         .flex_none()
-                        .pt(ctx.theme.rems(0.0625))
+                        .pt(strip + ctx.theme.rems(0.0625))
                         .children(row_controls),
                 )
-                .child(add_column_button(ctx, cx))
+                .child(div().flex_none().pt(strip).child(add_column_button(ctx, cx)))
                 .into_any_element(),
         )
     }
@@ -1109,6 +1119,54 @@ fn row_control(
                     let _ = editor.update(cx, |editor, cx| editor.remove_row(id, row, window, cx));
                 }),
         )
+        .into_any_element()
+}
+
+/// The controls above each column that take the column away, laid out with
+/// the same widths as the cells under them.
+fn column_controls(
+    ctx: &BlockContext,
+    columns: usize,
+    height: gpui_kit::Pixels,
+    _cx: &mut App,
+) -> AnyElement {
+    let id = ctx.id;
+    let controls: Vec<AnyElement> = (0..columns)
+        .map(|column| {
+            let editor = ctx.editor.clone();
+            div()
+                .flex_1()
+                .min_w(ctx.theme.rems(7.5))
+                .h(height)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    Button::new(("drop-column", column))
+                        .ghost()
+                        .xsmall()
+                        .icon(super::ui::Lucide("x"))
+                        .tooltip("Delete column")
+                        .on_click(move |_, window, cx| {
+                            let _ = editor.update(cx, |editor, cx| {
+                                editor.remove_column(id, column, window, cx)
+                            });
+                        }),
+                )
+                .into_any_element()
+        })
+        .collect();
+    h_flex()
+        .w_full()
+        // The table's frame is a pixel wide on each side.
+        .px(gpui_kit::px(1.))
+        .when(!ctx.reveal_controls, |this| {
+            this.invisible()
+                .group_hover(super::view::group_name(id), |this| this.visible())
+        })
+        // With one column left there is nothing to take away.
+        .when(columns > 1, |this| this.children(controls))
+        .h(height)
         .into_any_element()
 }
 
