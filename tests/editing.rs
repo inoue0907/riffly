@@ -596,6 +596,30 @@ fn dragging_the_handle_reorders_blocks(cx: &mut TestAppContext) {
     // The pointer ends on the upper half of the third block, so the dragged
     // block lands above it.
     assert_eq!(harness.texts(cx), vec!["two", "one", "three"]);
+    // A drag is not a click: the options menu stays shut, so it never covers
+    // the blocks the drag is let go over.
+    assert!(!cx.update(|cx| harness.editor.read(cx).block_menu_is_open()));
+}
+
+#[gpui_kit::test]
+fn a_click_on_the_handle_opens_the_block_menu(cx: &mut TestAppContext) {
+    let harness = setup(cx);
+    harness.type_text("one", cx);
+
+    cx.update_window(harness.window, |_, window, cx| {
+        window.render_frame(cx);
+        window.hover(("block", 1usize), cx);
+        window.render_frame(cx);
+        window.click(("drag", 1usize), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(cx.update(|cx| harness.editor.read(cx).block_menu_is_open()));
+
+    // Escape dismisses it.
+    harness.press("escape", cx);
+    cx.run_until_parked();
+    assert!(!cx.update(|cx| harness.editor.read(cx).block_menu_is_open()));
 }
 
 #[gpui_kit::test]

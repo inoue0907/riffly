@@ -67,6 +67,10 @@ pub struct RifflyEditor {
     pub(crate) mentions: Vec<super::suggestion::Mention>,
     /// Where a dragged block would land.
     pub(crate) drop_target: Option<super::gutter::DropTarget>,
+    /// The block options menu and the block it was opened from.
+    pub(crate) block_menu: Option<(BlockId, gpui_kit::Entity<gpui_kit::component::menu::PopupMenu>)>,
+    /// The block whose menu was last dismissed, and when.
+    pub(crate) block_menu_closed: Option<(BlockId, std::time::Instant)>,
     /// The open link editor, if any.
     pub(crate) link_editor: Option<super::toolbar::LinkEditor>,
     /// Undo and redo for the document as a whole.
@@ -114,6 +118,8 @@ impl RifflyEditor {
             suggestion: None,
             mentions: super::suggestion::default_mentions(),
             drop_target: None,
+            block_menu: None,
+            block_menu_closed: None,
             link_editor: None,
             history: super::history::History::default(),
             measured_lengths: HashMap::new(),
@@ -1128,7 +1134,6 @@ impl RifflyEditor {
             .ml(-cx.editor_theme().gutter_controls_width)
             .pl(cx.editor_theme().gutter_controls_width
                 + cx.editor_theme().indent_width * indent as f32)
-            .child(gutter)
             .child(
                 // The tint belongs to the block, not to the gutter the row
                 // reaches into, so it goes on the content rather than the row.
@@ -1140,6 +1145,11 @@ impl RifflyEditor {
                     })
                     .child(wrapped),
             )
+            // The gutter is placed absolutely, so it can come after the content
+            // and be drawn over it. A press on the handle then reaches the
+            // handle first, which keeps it from the text input whose box
+            // reaches a little way left of the text, under the handle.
+            .child(gutter)
             .children(indicator)
             .on_drag_move(cx.listener(move |this, event: &DragMoveEvent<DraggedBlock>, _, cx| {
                 this.on_drag_over(ix, event, cx)

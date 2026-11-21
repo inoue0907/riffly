@@ -7,6 +7,7 @@ pub mod log;
 pub mod pdf;
 pub mod placement;
 pub mod shell;
+pub mod video;
 pub mod workspace;
 
 pub use editor::RifflyEditor;

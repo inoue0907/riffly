@@ -716,7 +716,7 @@ impl BlockSpec for Image {
         }
     }
 
-    fn render_body(&self, ctx: &BlockContext, _: &mut Window, cx: &mut App) -> Option<AnyElement> {
+    fn render_body(&self, ctx: &BlockContext, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let id = ctx.id;
         let editor = ctx.editor.clone();
         let selected = ctx.selected;
@@ -762,13 +762,21 @@ impl BlockSpec for Image {
                     .into_any_element(),
             );
         };
+        let body = div().w_full().when(selected, |this| {
+            this.border_2().border_color(cx.theme().primary)
+        });
+        if crate::video::is_video(&src) {
+            // The player lives as long as the block shows this source; the
+            // key carries the source's length, so a new video gets a new one
+            // without hashing megabytes of base64 every frame.
+            let key = gpui_kit::SharedString::from(format!("video-{}-{}", id.0, src.len()));
+            let player = window.use_keyed_state(key, cx, |_, cx| {
+                crate::video::VideoView::new(&src, cx)
+            });
+            return Some(body.child(player).into_any_element());
+        }
         Some(
-            div()
-                .w_full()
-                .when(selected, |this| {
-                    this.border_2().border_color(cx.theme().primary)
-                })
-                .child(img(src.to_string()).w_full().rounded(ctx.theme.radius))
+            body.child(img(src.to_string()).w_full().rounded(ctx.theme.radius))
                 .into_any_element(),
         )
     }

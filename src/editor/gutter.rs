@@ -1,13 +1,17 @@
 //! The left gutter: the `+` insert button and the drag handle, plus the
 //! drag-to-reorder machinery they drive.
 
+use std::time::{Duration, Instant};
+
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu};
+use gpui_kit::component::menu::PopupMenu;
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::{ActiveTheme, Sizable as _};
 
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, DragMoveEvent, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, Styled as _, Window, div, px,
+    AnyElement, App, AppContext as _, Context, DismissEvent, DragMoveEvent, Focusable as _,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, Styled as _,
+    Window, div, px,
 };
 
 
@@ -103,6 +107,48 @@ impl RifflyEditor {
                 .group_hover(group_name(id), |this| this.visible());
         }
 
+        let handle = draggable(
+            Button::new(("drag", id.0 as usize))
+                .ghost()
+                .xsmall()
+                .icon(Lucide("grip-vertical"))
+                .tooltip("Click for options, hold for drag")
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.select_block_as_node(id, window, cx);
+                    this.toggle_block_menu(id, label.clone(), focus.clone(), is_table, window, cx);
+                })),
+            id,
+            text,
+        );
+        // The menu opens on a click, once the button is let go without
+        // having moved: opening it on the press, as a dropdown does, puts
+        // it over the blocks before a drag has begun, and the drag is then
+        // let go on the menu instead of on a block.
+        let handle = match self.block_menu.as_ref().filter(|(menu_id, _)| *menu_id == id) {
+            Some((_, menu)) => {
+                let menu = menu.clone();
+                let menu_focus = menu.focus_handle(cx);
+                Popover::new(("block-menu", id.0 as usize))
+                    // Opening hands focus to the menu, so its keys work.
+                    .track_focus(&menu_focus)
+                    .appearance(false)
+                    .overlay_closable(false)
+                    // The left button belongs to the click and the drag.
+                    .mouse_button(MouseButton::Right)
+                    .trigger(handle)
+                    .open(true)
+                    .content(move |_, _, _| menu.clone())
+                    .into_any_element()
+            }
+            None => handle.into_any_element(),
+        };
+        // The press is the handle's alone: the page under it would otherwise
+        // take it as the start of a selection and drop the blocks already
+        // selected, which a drag from the handle is meant to carry.
+        let handle = div()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(handle);
+
         controls
             .child(
                 Button::new(("insert", id.0 as usize))
@@ -114,24 +160,49 @@ impl RifflyEditor {
                         this.insert_block_below(id, window, cx)
                     })),
             )
-            .child(
-                draggable(
-                    Button::new(("drag", id.0 as usize))
-                        .ghost()
-                        .xsmall()
-                        .icon(Lucide("grip-vertical"))
-                        .tooltip("Click for options, hold for drag")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.select_block_as_node(id, window, cx)
-                        })),
-                    id,
-                    text,
-                )
-                .dropdown_menu(move |menu, window, cx| {
-                    block_menu(id, label.clone(), focus.clone(), is_table, menu, window, cx)
-                }),
-            )
+            .child(handle)
             .into_any_element()
+    }
+
+    /// Open the block options menu under the handle of `id`, or close it if
+    /// that is the menu the click just dismissed.
+    fn toggle_block_menu(
+        &mut self,
+        id: BlockId,
+        label: gpui_kit::SharedString,
+        focus: gpui_kit::FocusHandle,
+        is_table: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // A press outside an open menu dismisses it before the click arrives,
+        // so a click on the handle of the menu that was open closes it.
+        let just_closed = self
+            .block_menu_closed
+            .take()
+            .is_some_and(|(closed, at)| closed == id && at.elapsed() < Duration::from_millis(500));
+        if just_closed {
+            return;
+        }
+        let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+            block_menu(id, label, focus, is_table, menu, window, cx)
+        });
+        menu.focus_handle(cx).focus(window, cx);
+        cx.subscribe_in(&menu, window, move |this, _, _: &DismissEvent, _, cx| {
+            if this.block_menu.as_ref().is_some_and(|(open, _)| *open == id) {
+                this.block_menu = None;
+                this.block_menu_closed = Some((id, Instant::now()));
+                cx.notify();
+            }
+        })
+        .detach();
+        self.block_menu = Some((id, menu));
+        cx.notify();
+    }
+
+    /// Whether the block options menu is open, for tests.
+    pub fn block_menu_is_open(&self) -> bool {
+        self.block_menu.is_some()
     }
 
     /// Insert an empty paragraph under `id` and put the caret in it, the way
