@@ -470,6 +470,8 @@ pub struct Workspace {
     shortcuts_focus: FocusHandle,
     /// A divider is being dragged, so tab drop targets stay hidden.
     resizing: bool,
+    /// An update is being looked for or downloaded, so the button waits.
+    updating: bool,
 }
 
 impl Workspace {
@@ -499,6 +501,7 @@ impl Workspace {
             show_shortcuts: false,
             shortcuts_focus: cx.focus_handle(),
             resizing: false,
+            updating: false,
         }
     }
 
@@ -1556,6 +1559,150 @@ impl Workspace {
         .detach();
     }
 
+    // ------------------------------------------------------------ updating
+
+    /// Ask GitHub whether a newer Riffly is published and, if the person
+    /// wants it, put it in place of this one. The check and the download
+    /// happen on a thread of their own; the window stays live throughout.
+    fn check_for_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.updating {
+            return;
+        }
+        self.updating = true;
+        self.error = None;
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let found = off_thread(crate::update::check).await;
+            let release = match found {
+                Some(Ok(crate::update::Check::Newer(release))) => release,
+                Some(Ok(crate::update::Check::UpToDate)) => {
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        this.updating = false;
+                        cx.notify();
+                        window.prompt(
+                            PromptLevel::Info,
+                            &format!(
+                                "Riffly {} is the latest version.",
+                                crate::update::current_version()
+                            ),
+                            None,
+                            &["OK"],
+                            cx,
+                        )
+                    });
+                    return;
+                }
+                Some(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| this.update_failed(error, cx));
+                    return;
+                }
+                None => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.update_failed("the update could not be started".into(), cx)
+                    });
+                    return;
+                }
+            };
+
+            let asked = this.update_in(cx, |_, window, cx| {
+                window.prompt(
+                    PromptLevel::Info,
+                    &format!("Riffly {} is available.", release.version),
+                    Some(&format!(
+                        "You have {}. Riffly downloads the new version and \
+                         puts it in place of this one.",
+                        crate::update::current_version()
+                    )),
+                    &["Download", "Not now"],
+                    cx,
+                )
+            });
+            let Ok(answer) = asked else { return };
+            if answer.await != Ok(0) {
+                let _ = this.update(cx, |this, cx| {
+                    this.updating = false;
+                    cx.notify();
+                });
+                return;
+            }
+
+            let version = release.version.clone();
+            let installed = off_thread(move || crate::update::install(&release)).await;
+            let exe = match installed {
+                Some(Ok(exe)) => exe,
+                Some(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| this.update_failed(error, cx));
+                    return;
+                }
+                None => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.update_failed("the download could not be started".into(), cx)
+                    });
+                    return;
+                }
+            };
+
+            let asked = this.update_in(cx, |this, window, cx| {
+                this.updating = false;
+                cx.notify();
+                let unsaved = this.has_unsaved_changes();
+                let detail = if unsaved {
+                    "Save your open documents, then start Riffly again to use it."
+                } else {
+                    "Riffly restarts into the new version, with the files you have open."
+                };
+                let buttons: &[&str] = if unsaved {
+                    &["OK"]
+                } else {
+                    &["Restart now", "Later"]
+                };
+                (
+                    window.prompt(
+                        PromptLevel::Info,
+                        &format!("Riffly {version} is installed."),
+                        Some(detail),
+                        buttons,
+                        cx,
+                    ),
+                    unsaved,
+                )
+            });
+            let Ok((answer, unsaved)) = asked else { return };
+            if unsaved || answer.await != Ok(0) {
+                return;
+            }
+            let _ = this.update_in(cx, |this, window, cx| this.restart(exe, window, cx));
+        })
+        .detach();
+    }
+
+    /// Say what went wrong with an update, in the sidebar's error line.
+    fn update_failed(&mut self, error: String, cx: &mut Context<Self>) {
+        crate::log::write(format!("update: {error}"));
+        self.updating = false;
+        self.error = Some(format!("Update: {error}").into());
+        cx.notify();
+    }
+
+    /// Start the new executable with the files open here, and go.
+    fn restart(&mut self, exe: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let files: Vec<PathBuf> = self
+            .panes
+            .iter()
+            .flat_map(|pane| &pane.tabs)
+            .filter_map(|tab| tab.path.clone())
+            .collect();
+        if let Err(error) = crate::update::restart(&exe, &files) {
+            self.update_failed(error, cx);
+            return;
+        }
+        self.close_confirmed = true;
+        self.remember_window(window);
+        window.remove_window();
+        cx.quit();
+    }
+
     // -------------------------------------------------------------- render
 
     fn render_tab_bar(&self, pane_ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2195,6 +2342,24 @@ impl Workspace {
                             })
                     })
                     .child(
+                        toolbar_icon(
+                            "check-updates",
+                            "download",
+                            if self.updating {
+                                "Looking for a new version…".to_string()
+                            } else {
+                                format!(
+                                    "Update Riffly (you have {})",
+                                    crate::update::current_version()
+                                )
+                            },
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.check_for_updates(window, cx)
+                        })),
+                    )
+                    .child(
                         toolbar_icon("show-shortcuts", "keyboard", "Keyboard shortcuts (F1)", cx)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.toggle_shortcuts(window, cx)
@@ -2305,12 +2470,28 @@ fn suggested_name(editor: &Entity<RifflyEditor>, cx: &App) -> String {
     format!("{}.md", clean.trim())
 }
 
+/// Run a blocking job — a download, say — on a thread of its own, so the
+/// window keeps drawing. `None` if the thread could not be started.
+async fn off_thread<T: Send + 'static>(
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (tx, rx) = async_channel::bounded(1);
+    std::thread::Builder::new()
+        .name("riffly-update".into())
+        .spawn(move || {
+            let _ = tx.send_blocking(job());
+        })
+        .ok()?;
+    rx.recv().await.ok()
+}
+
 fn toolbar_icon(
     id: impl Into<gpui_kit::ElementId>,
     name: &'static str,
-    tooltip: &'static str,
+    tooltip: impl Into<SharedString>,
     cx: &App,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let tooltip = tooltip.into();
     let theme = cx.editor_theme();
     div()
         .id(id)
@@ -2323,7 +2504,9 @@ fn toolbar_icon(
         .rounded(theme.radius)
         .cursor_pointer()
         .hover(|this| this.bg(cx.theme().accent))
-        .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tooltip).build(window, cx))
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+        })
         .child(icon(name, theme.rems(1.), cx.theme().muted_foreground))
 }
 

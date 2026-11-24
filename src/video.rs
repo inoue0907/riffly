@@ -55,6 +55,8 @@ pub fn video_bytes(src: &str) -> Result<Vec<u8>, String> {
 
 /// What the decoding thread hands the view.
 enum Message {
+    // Only the Windows decoder makes frames.
+    #[cfg_attr(not(windows), allow(dead_code))]
     Frame(RenderImage),
     Failed(String),
 }

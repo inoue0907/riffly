@@ -30,6 +30,10 @@ async-channel = "2.5.0"
 # Video in a document: base64 `data:` URLs, and frames handed to GPUI.
 base64 = "0.22"
 image = { version = "0.25", default-features = false }
+# Updating in place: the GitHub API over HTTPS, and the release zip.
+# Release archives are made by Compress-Archive, which only deflates.
+ureq = "3.5.2"
+zip = { version = "9.8.2", default-features = false, features = ["deflate"] }
 
 # The system PDF engine for the PDF viewer, and the registry for
 # registering Riffly with Explorer.
