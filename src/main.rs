@@ -167,6 +167,9 @@ fn main() {
     if let Some(code) = shell_command() {
         std::process::exit(code);
     }
+    // An update leaves the executable it replaced beside the new one; it is
+    // not running now, so it can go.
+    riffly::update::clean_up();
     let app = gpui_kit::application().with_assets(AllAssets);
 
     app.run(move |cx| {
